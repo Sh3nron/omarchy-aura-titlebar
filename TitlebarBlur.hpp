@@ -5,9 +5,11 @@
 #include <hyprland/src/render/pass/PassElement.hpp>
 
 // Owned by the decoration; reused across frames.
+class CHyprBar;
 struct STitlebarBlurResources {
     SP<Render::IFramebuffer> horizontal, vertical;
     UP<CShader> blur, composite;
+    CHyprBar*  owner = nullptr; // the bar element that recomposites goes back after the frost
     bool failed = false;
 };
 
@@ -19,6 +21,7 @@ class CTitlebarGradualBlurElement : public IPassElement {
         CBox window; // monitor-local physical pixels, before output transform
         double height, reach, round, roundingPower, strength, opacity;
         CHyprColor tint;
+        float passAlpha = 1.F; // pass alpha forwarded to the bar element
     };
     explicit CTitlebarGradualBlurElement(const SBlurData& data) : m_data(data) {}
     std::vector<UP<IPassElement>> draw() override;

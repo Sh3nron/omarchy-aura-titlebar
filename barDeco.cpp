@@ -636,12 +636,16 @@ void CHyprBar::draw(PHLMONITOR pMonitor, const float& a) {
     if (!PWINDOW->m_ruleApplicator->decorate().valueOrDefault())
         return;
 
-    // gradual blur backdrop first, then the bar itself: the frosted band
-    // samples the framebuffer before any bar pixel is committed
+    // The gradual blur element samples the framebuffer before any bar pixel
+    // is committed and hands the bar back as its child element, so paint
+    // order is always frost first, bar above, regardless of how the pass
+    // engine schedules needsLiveBlur elements.
     if (g_pGlobalState->config.barGradualBlur->value()) {
         auto windowBox = monitorRelativeWindowBox(pMonitor);
-        if (auto blurElement = makeGradualBlurElement(pMonitor, windowBox, a))
+        if (auto blurElement = makeGradualBlurElement(pMonitor, windowBox, a)) {
             g_pHyprRenderer->m_renderPass.add(std::move(blurElement));
+            return;
+        }
     }
 
     auto data = CBarPassElement::SBarData{this, a};
@@ -675,7 +679,9 @@ UP<IPassElement> CHyprBar::makeGradualBlurElement(PHLMONITOR pMonitor, const CBo
         .strength = std::clamp(g_pGlobalState->config.barBlurStrength->value(), 0.F, 4.F),
         .opacity = opacity * std::clamp(progress * 1.8F, 0.F, 1.F),
         .tint = tint,
+        .passAlpha = opacity,
     };
+    m_blurResources.owner = this;
     return makeUnique<CTitlebarGradualBlurElement>(data);
 }
 

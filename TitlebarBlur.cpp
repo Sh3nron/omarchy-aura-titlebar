@@ -1,5 +1,6 @@
 #include "TitlebarBlur.hpp"
 #include "BlurShaders.hpp"
+#include "BarPassElement.hpp"
 
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
@@ -178,5 +179,10 @@ std::vector<UP<IPassElement>> CTitlebarGradualBlurElement::draw() {
         composite(layer);
     }
     composite(0);
-    return {};
+    // The blur pass engine may defer needsLiveBlur elements behind the
+    // window's own pass elements; the bar must paint after this composite,
+    // so hand it back as our child element.
+    std::vector<UP<IPassElement>> result;
+    result.emplace_back(makeUnique<CBarPassElement>(CBarPassElement::SBarData{m_data.resources->owner, sc<float>(m_data.passAlpha)}));
+    return result;
 }
