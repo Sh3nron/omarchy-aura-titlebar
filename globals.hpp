@@ -36,7 +36,8 @@ struct SGlobalState {
         SP<Config::Values::CFontWeightValue> barTextWeight;
         SP<Config::Values::CIntValue>        barPadding;
         SP<Config::Values::CIntValue>        barButtonPadding;
-        SP<Config::Values::CBoolValue>       barBlur, barTitleEnabled, revealOnHover, enabled, iconOnHover;
+        SP<Config::Values::CIntValue>        barBlurReach;
+        SP<Config::Values::CBoolValue>       barBlur, barGradualBlur, barTitleEnabled, revealOnHover, enabled, iconOnHover;
         SP<Config::Values::CStringValue>     barTextFont, barTextAlign, barButtonsAlignment, onDoubleClick;
     } config;
 };

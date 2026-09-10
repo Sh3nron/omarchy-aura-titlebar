@@ -19,14 +19,18 @@ bool CBarPassElement::needsLiveBlur() {
 
     CHyprColor  color = data.deco->m_bForcedBarColor.value_or(CHyprColor{static_cast<uint64_t>(g_pGlobalState->config.barColor->value())});
     color.a *= data.a;
-    const bool SHOULDBLUR = g_pGlobalState->config.barBlur->value() && *PENABLEBLURGLOBAL && color.a < 1.F;
+    const bool SHOULDBLUR = g_pGlobalState->config.barBlur->value() && *PENABLEBLURGLOBAL && color.a < 1.F && !g_pGlobalState->config.barGradualBlur->value();
 
     return SHOULDBLUR;
 }
 
 std::optional<CBox> CBarPassElement::boundingBox() {
-    // Temporary fix: expand the bar bb a bit, otherwise occlusion gets too aggressive.
-    return data.deco->assignedBoxGlobal().translate(-g_pHyprRenderer->m_renderData.pMonitor->m_position).expand(10);
+    // Temporary fix: expand the bar bb a bit, otherwise occlusion gets too
+    // aggressive. The gradual blur reach below the strip is included too.
+    int expand = 10;
+    if (g_pGlobalState->config.barGradualBlur->value())
+        expand += g_pGlobalState->config.barBlurReach->value();
+    return data.deco->assignedBoxGlobal().translate(-g_pHyprRenderer->m_renderData.pMonitor->m_position).expand(expand);
 }
 
 bool CBarPassElement::needsPrecomputeBlur() {

@@ -4,6 +4,7 @@
 
 #include <hyprland/src/render/decorations/IHyprWindowDecoration.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
+#include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/gl/GLTexture.hpp>
 #include <hyprland/src/devices/IPointer.hpp>
 #include <hyprland/src/devices/ITouch.hpp>
@@ -64,6 +65,7 @@ class CHyprBar : public IHyprWindowDecoration {
     CBox                       m_bAssignedBox;
 
     SP<Render::ITexture>       m_pTextTex;
+    SP<Render::IFramebuffer>   m_pMatteFB;
 
     bool                       m_bWindowSizeChanged = false;
     bool                       m_hidden             = false;
@@ -108,6 +110,7 @@ class CHyprBar : public IHyprWindowDecoration {
     CBox assignedBoxGlobal();
     CBox windowBoxGlobal();
     CBox stripBoxGlobal();
+    CBox monitorRelativeWindowBox(PHLMONITOR monitor);
     bool stripContainsPoint(const Vector2D& coords);
 
     void setReveal(bool want);
@@ -137,5 +140,15 @@ class CHyprBar : public IHyprWindowDecoration {
 
     size_t getVisibleButtonCount(Config::INTEGER barButtonPadding, Config::INTEGER barPadding, const Vector2D& bufferSize, const float scale);
 
+    UP<IPassElement> makeGradualBlurElement(PHLMONITOR monitor, const CBox& windowBoxScaled);
+
+    SP<Render::IFramebuffer> matteFB() const {
+        return m_pMatteFB;
+    }
+    void setMatteFB(SP<Render::IFramebuffer> fb) {
+        m_pMatteFB = fb;
+    }
+
+    friend class CTitlebarGradualBlurElement;
     friend class CBarPassElement;
 };

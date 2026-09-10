@@ -24,6 +24,7 @@
 
 #include "globals.hpp"
 #include "BarPassElement.hpp"
+#include "TitlebarBlur.hpp"
 
 #include <climits>
 
@@ -477,8 +478,57 @@ void CHyprBar::draw(PHLMONITOR pMonitor, const float& a) {
     if (!PWINDOW->m_ruleApplicator->decorate().valueOrDefault())
         return;
 
+    // gradual blur backdrop first, then the bar itself: the frosted band
+    // samples the framebuffer before any bar pixel is committed
+    if (g_pGlobalState->config.barGradualBlur->value()) {
+        auto windowBox = monitorRelativeWindowBox(pMonitor);
+        if (auto blurElement = makeGradualBlurElement(pMonitor, windowBox))
+            g_pHyprRenderer->m_renderPass.add(std::move(blurElement));
+    }
+
     auto data = CBarPassElement::SBarData{this, a};
     g_pHyprRenderer->m_renderPass.add(makeUnique<CBarPassElement>(data));
+}
+
+UP<IPassElement> CHyprBar::makeGradualBlurElement(PHLMONITOR pMonitor, const CBox& windowBoxScaled) {
+    static auto PENABLEBLURGLOBAL = CConfigValue<Config::BOOL>("decoration:blur:enabled");
+    if (!*PENABLEBLURGLOBAL)
+        return nullptr;
+
+    const auto PWINDOW     = m_pWindow.lock();
+    if (!PWINDOW)
+        return nullptr;
+
+    const float PROGRESS    = m_fRevealProgress->value();
+    const float strength    = std::clamp(PROGRESS * 1.8F, 0.F, 1.F);
+    if (strength <= 0.004F)
+        return nullptr;
+
+    const auto  HEIGHT = g_pGlobalState->config.barHeight->value();
+    const auto  REACH  = g_pGlobalState->config.barBlurReach->value();
+
+    const double scaledBarHeight = sc<double>(HEIGHT) * pMonitor->m_scale;
+    const double scaledReach     = sc<double>(REACH) * pMonitor->m_scale;
+    const double scaledRound     = PWINDOW->rounding() > 1 ? (PWINDOW->rounding() - 1) * pMonitor->m_scale : 0.0;
+
+    // the band edge follows the reveal (overshoot sinks it a touch further)
+    double bandH = scaledBarHeight * std::clamp(PROGRESS, 0.F, 1.5F);
+    bandH     = std::clamp(bandH, 1.0, static_cast<double>(sc<double>(windowBoxScaled.h)));
+    double reach = std::clamp(scaledReach, 0.0, std::max(0.0, windowBoxScaled.h - bandH));
+
+    CTitlebarGradualBlurElement::SBlurData data;
+    data.monitor  = pMonitor;
+    data.deco     = this;
+    data.box      = {windowBoxScaled.x, windowBoxScaled.y, windowBoxScaled.w, bandH + reach};
+    data.cardH    = bandH;
+    data.round    = scaledRound;
+    data.reach    = reach;
+    data.strength = strength;
+
+    if (data.box.h < 2)
+        return nullptr;
+
+    return makeUnique<CTitlebarGradualBlurElement>(data);
 }
 
 void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
@@ -518,7 +568,8 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     color.a *= a * RENDERALPHA;
 
     const bool BUTTONSRIGHT = ALIGNBUTTONS != "left";
-    const bool SHOULDBLUR   = ENABLEBLUR && *PENABLEBLURGLOBAL && color.a < 1.F;
+    const bool GRADUALBLUR  = g_pGlobalState->config.barGradualBlur->value() && *PENABLEBLURGLOBAL;
+    const bool SHOULDBLUR   = ENABLEBLUR && *PENABLEBLURGLOBAL && color.a < 1.F && !GRADUALBLUR;
 
     const auto PWORKSPACE      = PWINDOW->m_workspace;
     const auto WORKSPACEOFFSET = PWORKSPACE && !PWINDOW->m_pinned ? PWORKSPACE->m_renderOffset->value() : Vector2D();
@@ -534,11 +585,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     m_seExtents = {{0, 0}, {0, 0}};
 
     // window box in monitor-local space; the bar covers only its top strip
-    CBox windowBox = {PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x + PWINDOW->m_floatingOffset.x - pMonitor->m_position.x,
-                      PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y + PWINDOW->m_floatingOffset.y - pMonitor->m_position.y,
-                      PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x, PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y};
-
-    windowBox.translate(WORKSPACEOFFSET).scale(pMonitor->m_scale).round();
+    CBox windowBox = monitorRelativeWindowBox(pMonitor);
 
     if (windowBox.w < 1 || windowBox.h < 1)
         return;
@@ -666,6 +713,8 @@ void CHyprBar::damageEntire() {
         return;
 
     window.expand(2);
+    if (g_pGlobalState->config.barGradualBlur->value())
+        window.h += g_pGlobalState->config.barBlurReach->value();
     g_pHyprRenderer->damageBox(window);
 }
 
@@ -693,6 +742,22 @@ CBox CHyprBar::windowBoxGlobal() {
 
     return {pos, size};
 }
+CBox CHyprBar::monitorRelativeWindowBox(PHLMONITOR pMonitor) {
+    if (!validMapped(m_pWindow) || !pMonitor)
+        return {};
+
+    const auto PWINDOW         = m_pWindow.lock();
+    const auto PWORKSPACE      = PWINDOW->m_workspace;
+    const auto WORKSPACEOFFSET = PWORKSPACE && !PWINDOW->m_pinned ? PWORKSPACE->m_renderOffset->value() : Vector2D();
+
+    CBox box = {PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x + PWINDOW->m_floatingOffset.x - pMonitor->m_position.x,
+                PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y + PWINDOW->m_floatingOffset.y - pMonitor->m_position.y,
+                PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x, PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y};
+
+    box.translate(WORKSPACEOFFSET).scale(pMonitor->m_scale).round();
+    return box;
+}
+
 
 CBox CHyprBar::stripBoxGlobal() {
     const auto BOX = windowBoxGlobal();

@@ -220,11 +220,16 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_pGlobalState->config.barTextWeight   = makeShared<Config::Values::CFontWeightValue>("plugin:aura_titlebar:bar_text_weight", "Bar's title text weight (e.g. \"bold\" or an integer 100-1000)", 400);
     g_pGlobalState->config.barTitleEnabled = makeShared<Config::Values::CBoolValue>("plugin:aura_titlebar:bar_title_enabled", "Whether to enable titles in the bar", true);
     g_pGlobalState->config.barBlur         = makeShared<Config::Values::CBoolValue>("plugin:aura_titlebar:bar_blur", "Whether to enable blur of the bar", false);
+    g_pGlobalState->config.barGradualBlur = makeShared<Config::Values::CBoolValue>(
+        "plugin:aura_titlebar:bar_gradual_blur",
+        "Live gradual blur under the bar (strongest at the strip, melting into the content below)", true);
     g_pGlobalState->config.barTextFont     = makeShared<Config::Values::CStringValue>("plugin:aura_titlebar:bar_text_font", "Bar's text font", "Sans");
     g_pGlobalState->config.barTextAlign    = makeShared<Config::Values::CStringValue>("plugin:aura_titlebar:bar_text_align", "Bar's text alignment", "center");
     g_pGlobalState->config.barButtonsAlignment = makeShared<Config::Values::CStringValue>("plugin:aura_titlebar:bar_buttons_alignment", "Alignment of the bar buttons", "right");
     g_pGlobalState->config.barPadding          = makeShared<Config::Values::CIntValue>("plugin:aura_titlebar:bar_padding", "Padding of the bar", 7);
     g_pGlobalState->config.barButtonPadding    = makeShared<Config::Values::CIntValue>("plugin:aura_titlebar:bar_button_padding", "Padding of the bar buttons", 5);
+    g_pGlobalState->config.barBlurReach = makeShared<Config::Values::CIntValue>(
+        "plugin:aura_titlebar:bar_blur_reach", "Gradual blur reach below the bar (pixels)", 96);
     g_pGlobalState->config.enabled             = makeShared<Config::Values::CBoolValue>("plugin:aura_titlebar:enabled", "Whether bars are enabled", true);
     g_pGlobalState->config.revealOnHover = makeShared<Config::Values::CBoolValue>(
         "plugin:aura_titlebar:reveal_on_hover", "Whether the bar only appears while the cursor hovers the title strip", true);
@@ -239,6 +244,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barTextWeight);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barTitleEnabled);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barBlur);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barGradualBlur);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barBlurReach);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barTextFont);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barTextAlign);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barButtonsAlignment);

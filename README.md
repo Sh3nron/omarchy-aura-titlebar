@@ -68,6 +68,20 @@ Buttons are registered with `hl.plugin.aura_titlebar.add_button({ ... })`
 (right-to-left render order, as in hyprbars): the current setup wires
 `×` → close, `□` → maximize, `−` → `omarchy-shell window-controls minimize`.
 
+### Gradual blur (the ReactBits "Gradual Blur" system, compositor-side)
+
+`bar_gradual_blur = true` (default) gives the bar a continuous frosted halo
+underneath — strongest at the strip, melting smoothly into the content
+below, respecting the theme's rounded corners. It's the same matte +
+live-blur system as the omarchy aura-blur popup halo, implemented as a
+per-window pass element. Tunables in the `aura_titlebar` block:
+
+- `bar_blur_reach = 96` — how far below the bar the blur melts away
+- your `windowsIn` spring drives the band edge, so the frost slides in
+  with the bar
+- for a fully frosted bar surface (ReactBits style), give `bar_color`
+  some transparency, e.g. `bar_color = "rgba(1a1b26D9)"` (theme bg at ~0.85)
+
 Dynamic window rules: `aura_titlebar:no_bar`, `aura_titlebar:bar_color`,
 `aura_titlebar:title_color` (same syntax as hyprbars rules).
 
