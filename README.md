@@ -1,153 +1,195 @@
+<div align="center">
+
 # aura-titlebar
 
-A hover-revealed title bar plugin for Hyprland. The title bar **slides down
-over the window** with a springy, iOS-like animation while the cursor hovers
-the window's top strip, and disappears completely when the cursor leaves —
-so only your compositor border remains by default. Close, maximize, and
-minimize only exist while the bar is showing.
+**A hover-revealed title bar that slides down over your app windows.**
+*Spring-loaded, gradually blurred, and always out of the way.*
 
-Based on [hyprwm/hyprland-plugins](https://github.com/hyprwm/hyprland-plugins)
-`hyprbars` (BSD-3-Clause, © Vaxry & contributors, see `LICENSE`), heavily
-redesigned.
+![License](https://img.shields.io/badge/license%20hyprbars-BSD--3--Clause-blue)
+![License](https://img.shields.io/badge/license%20aura--titlebar-MIT-green)
+![Hyprland](https://img.shields.io/badge/Hyprland-0.56.x-cba6f7)
+![Omarchy](https://img.shields.io/badge/Omarchy-Quattro-50fa7b)
+![Platform](https://img.shields.io/badge/platform-Wayland-fab387)
 
-## Differences from stock hyprbars
+</div>
 
-| | hyprbars | aura-titlebar |
+---
+
+A Hyprland compositor plugin that gives every window an iPhone-style title
+bar: **nothing is visible until you deliberately hover the very top of a
+window** — then the bar springs down over the app content with one continuous
+motion, frosted with a progressive blur so the title and window controls read
+crisply at any scale. Move away, and it melts back — leaving only the
+compositor border you already had.
+
+```
+  ┌──────────────────────────────────────────────┐
+  │              My Window Title          ● ● ●  │  ← slides down on hover,
+  ├──────────────────────────────────────────────┤    spring + overshoot,
+  │        ░░░ progressive blur shoulder ░░░     │    frosted shoulders,
+  │                                              │    zero layout shift
+  │              app content, untouched          │
+  └──────────────────────────────────────────────┘
+```
+
+> Upstream: `hyprbars` [hyprwm/hyprland-plugins](https://github.com/hyprwm/hyprland-plugins)
+> redesigned — hover reveal, overlay geometry, spring motion, a compositor
+> gradual-blur matte, and interactive button animations.
+
+---
+
+## Why it feels different
+
+| | Stock `hyprbars` | **aura-titlebar** |
 | --- | --- | --- |
-| Space | reserves a strip (window gets shorter) | **zero layout shift** — overlays the window |
-| Visibility | always | **hover of the top strip only** |
-| Motion | none | **spring slide-down** (reuses the `windowsIn` animation curve) |
-| Border | optional own border (`bar_precedence_over_border`) | **none** — the user's border is the only border |
-| Clicks when hidden | always captured ("invisible but clickable" bug #690) | **pass through to the app** |
-| Fullscreen | rule-driven | also auto-suppressed |
+| Layout | reserves a strip (app gets shorter) | **zero layout shift** — overlays the window |
+| When visible | always | **10px deliberate hover dip only** |
+| Motion | none | **spring slide-down**, overshoot + settle |
+| Blur | flat blur of the strip | **continuous progressive blur** that melts into the content |
+| Border | optional own border | **never** — your theme's border is the only border |
+| Buttons | static, fixed hit targets | **staggered spring cascade**, hover/press states, fixed hit areas |
+| Clicks when hidden | "invisible but clickable" (upstream #690) | **pass through to the app** |
+| Maximized / fullscreen | hidden by rule | **bar still reachable** — it is your way back out |
+| Corner radii | outer curve | **your theme's inner curve** at any radius & rounding power |
+
+## Features
+
+- **Deliberate hover trigger** — `bar_hover_zone` (default 10px). Chrome- and
+  Firefox-style app UI (tabs, toolbars) at 20–40px depth stays untouched; the
+  full strip keeps the bar alive *after* it is revealed.
+- **Progressive frosted glass** — a quarter-resolution scalar matte computed
+  from your window's real rounded edge drives live compositor blur; the falloff
+  is smooth, two-axis, corner-radius aware, and costs ~nothing when idle.
+  The bar slides **with** the frost; text and buttons always render on top,
+  pixel-crisp.
+- **Communicative controls** — close / maximize / minimize cascade in
+  right-to-left on the reveal spring (ease-out-back scale from 0.6×, ease-out
+  cubic alpha), enlarge +12% and brighten on hover, compress while pressed,
+  fire on release, and cascade away in reverse on hide.
+- **Real dragging semantics** — a 4px movement threshold means jitter never
+  grabs the window; dragging preserves size and grab offset, detaching tiled
+  and fullscreen windows natively; touch dragging too, no forced retiling.
+- **Theme-native** — reads the omarchy theme colors, honors `rounding` and
+  `rounding_power`, rides your `windowsIn` spring curve for the reveal.
+- **No click-eating** — while hidden, the bar's region belongs to your app,
+  fully. Resolves the long-standing invisible-clickable-area bug upstream.
+- **ABI-guarded** — refuses to load on a Hyprland whose ABI string doesn't
+  match the build, notifying instead of crashing.
 
 ## Install
 
 ```sh
-cd ~/Projects/aura-titlebar
+git clone https://github.com/Sh3nron/aura-titlebar.git
+cd aura-titlebar
 ./setup.sh
 ```
 
-`setup.sh` rebuilds against the system Hyprland headers and installs a unique
-versioned filename by atomic rename. If Aura is already loaded, the update
-activates on the next login. Use `./setup.sh --stage-only` to install without
-making any compositor or configuration changes. The existing load hook in
-`~/.config/hypr/autostart.lua` picks the newest version at login.
+`setup.sh` builds against your installed Hyprland headers, installs the
+plugin by **atomic rename** (`aura_titlebar-<timestamp>.so` — the running
+compositor's mapped binary is never touched), and loads it. A hook in
+`~/.config/hypr/autostart.lua` loads the newest version at every login.
+Requirements: `hyprland`, `cmake`, `gcc`, `pkgconf`, matching dev headers
+(`hyprpm headers`).
 
-**The one rule that produces session-killing aborts if broken:** never
-truncate/overwrite a `.so` the running compositor has mapped. Builds are
-installed by rename to `aura_titlebar-<timestamp>-<unique-id>.so`. Updates
-require a new login; do not load a second copy or unload/reload in-session.
-Previous binaries are retained for rollback. To roll back, move the unwanted
-version outside the `aura_titlebar-*.so` filename pattern before the next login.
-
-## Remove
+## Update
 
 ```sh
-cd ~/Projects/aura-titlebar
+./setup.sh        # builds + installs a new versioned .so
+# the new version activates at your next login (or restart the session)
+```
+
+Remove:
+
+```sh
 ./uninstall.sh
 ```
 
-## Config
+## Configure
 
-In `~/.config/hypr/looknfeel.lua`, inside the guarded
-`hl.plugin.aura_titlebar` block (`reveal_on_hover = true` is the whole point
-of this fork; set it `false` to get a conventional always-on bar):
+Everything lives in `~/.config/hypr/looknfeel.lua`, inside a guarded
+`hl.plugin.aura_titlebar { … }` block — the theme color block reads
+`~/.local/state/omarchy/current/theme/colors.toml` automatically:
 
-| option | default | notes |
-| --- | --- | --- |
-| `bar_height` | `28` | strip height and slide distance |
-| `bar_color` / `col.text` | theme | pulled from the omarchy theme at reload |
-| `bar_text_*`, `bar_padding`, `bar_button_padding` | — | as in hyprbars |
-| `bar_buttons_alignment` | `right` | — |
-| `icon_on_hover` | `false` | icons understood as hyprbars |
-| `reveal_on_hover` | `true` | hover-to-appear; also what removes clicks when hidden |
-| `bar_blur` | `false` | needs global blur enabled |
-| `on_double_click` | — | as in hyprbars |
+```lua
+hl.config({
+  plugin = {
+    aura_titlebar = {
+      enabled              = true,
+      bar_height           = 28,
+      bar_color            = colors.background,
+      bar_gradual_blur     = true,   -- progressive frosted shoulders
+      bar_blur_reach       = 96,     -- melt length below the strip
+      bar_blur_strength    = 2.0,
+      bar_tint_opacity     = 0.20,
+      bar_title_enabled    = true,
+      bar_text_size        = 11,
+      bar_text_weight      = "medium",
+      bar_text_align       = "center",
+      bar_buttons_alignment = "right",
+      bar_button_scale     = 1.5,    -- enlarge all window controls
+      bar_buttons_pop      = true,   -- staggered cascade animation
+      bar_button_padding   = 5,
+      bar_padding          = 8,
+      bar_hover_zone       = 10,     -- reveal trigger depth (px)
+      reveal_on_hover      = true,
+      icon_on_hover        = false,
+      inactive_button_color = colors.muted,
+      col                  = { text = colors.foreground },
+      on_double_click      = [[…maximize toggle…]],
+    },
+  },
+})
+```
 
-Buttons are registered with `hl.plugin.aura_titlebar.add_button({ ... })`
-(right-to-left render order, as in hyprbars): the current setup wires
-`×` → close, `□` → maximize, `−` → `omarchy-shell window-controls minimize`.
+Buttons are registered right-to-left (the first declaration is the
+rightmost control):
 
-### Progressive blur
+```lua
+hl.plugin.aura_titlebar.add_button({
+  bg_color = colors.red, fg_color = colors.background,
+  size = 11, icon = "×",
+  action = [[hyprctl dispatch 'hl.dsp.window.close()']],
+})
+hl.plugin.aura_titlebar.add_button({ bg_color = colors.accent,  size = 10, icon = "□", action = [[…maximize…]] })
+hl.plugin.aura_titlebar.add_button({ bg_color = colors.muted,   size = 11, icon = "−", action = "omarchy-shell window-controls minimize" })
+```
 
-`bar_gradual_blur = true` uses five overlapping vertical masks and increasing
-Gaussian blur radii, following [React Bits Gradual Blur](https://reactbits.dev/animations/gradual-blur).
-It blurs the live app backdrop before drawing crisp title text and controls.
-The blur stays strong across the title strip and becomes progressively weaker
-below it, clipped to the window's rounded boundary. This replaces the old
-single-radius blur with fading opacity and its outward halo.
+Most options apply live with `omarchy restart hyprctl`; binary changes need
+a `./setup.sh` + re-login (the safe-update rule: never rewrite a `.so` the
+running compositor has mapped).
 
-- `bar_blur_reach = 96`: fade distance below the title strip, in logical pixels.
-- `bar_blur_strength = 2.0`: radius multiplier, from 0 to 4; independent of global blur size/passes.
-- `bar_tint_opacity = 0.20`: light theme tint, from 0 to 1, multiplied by `bar_color` alpha. Zero means blur only.
-- The existing `windowsIn` spring moves the band and controls together.
-- Global `decoration.blur.enabled` is respected. With gradual blur disabled,
-  the conventional bar background and `bar_blur` setting are used.
-
-GPU intermediates are reused, and only the strip plus kernel support is
-filtered. Existing damage near the strip is expanded before rendering to
-avoid stale backdrop pixels; an idle or hidden bar does not schedule frames.
-Shader/allocation failure falls back to the conventional bar background.
-
-### Buttons & trigger zone
-
-- `bar_button_scale = 1.5` (default) — multiplier on every button's
-  configured `size` (looknfeel values 11/10/11 become ~16px circles). Scales
-  with monitor scale like everything else.
-- The **reveal trigger** is the top `bar_hover_zone` pixels of the strip
-  (default 10px) — a deliberate dip. The full strip keeps the bar alive
-  once revealed, so moving below the trigger line doesn't hide it.
-- Buttons pop in with a **staggered spring cascade** (close → maximize →
-  minimize), bouncy ease-out-back scale from 0.6× with fading alpha, and
-  cascade away in reverse on hide. `bar_buttons_pop = true` by default.
-
-Dynamic window rules: `aura_titlebar:no_bar`, `aura_titlebar:bar_color`,
-`aura_titlebar:title_color` (same syntax as hyprbars rules).
+Dynamic window rules (same syntax as hyprbars):
+`aura_titlebar:no_bar`, `aura_titlebar:bar_color`,
+`aura_titlebar:title_color`.
 
 ## Behavior notes
 
-- Controls enlarge by 12% and brighten on hover, compress while pressed, and
-  animate back on release. Their hit areas stay fixed during animation.
-  Actions fire on release over the original button; moving away cancels them.
-- A titlebar drag begins after 4 logical pixels of movement. Detaching tiled
-  or fullscreen windows preserves the visible size and original grab offset,
-  then uses native floating-window dragging. Releasing leaves the window
-  floating. A simple click or small pointer jitter does not detach it.
-- Touch dragging also preserves size and the grab point, without the previous
-  forced half-screen resize, pinning, or retiling on release.
+- The reveal rides the **`windowsIn` animation leaf** — tune its spring in
+  `looknfeel.lua` to shape the whole motion.
+- Buttons animate around their **resting centers**; hit-testing always uses
+  final geometry, so clicks during the cascade never miss.
+- When hidden (and while a reveal animation plays), presses on the strip pass
+  through to the app. The bar turns interactive at ~60% of the slide.
+- Press-and-hold keeps the bar up even off-window, so dragging a window away
+  mid-press works; fullscreen windows likewise keep escape controls.
+- Touch dragging preserves size and grab point — no retiling on release.
 
-- The reveal animation **shares the `windowsIn` spring curve**, so tune it
-  via `hl.animation({ leaf = "windowsIn", ... })` in `looknfeel.lua`.
-- Scheduled clicks pass through to the app while the bar is hidden; the bar
-  becomes interactive at ~60% of the slide.
-- Pressing-and-holding the strip keeps the bar up even if the cursor leaves
-  (dragging a window away mid-press works).
-- During hover, a press on the strip (non-button area) drags the window and
-  swallows the click, exactly like a real title bar.
-- Fullscreen and `no_bar`-ruled windows never reveal the bar.
+## Testing
 
-## Build layout
+Interaction regressions run in an isolated nested Hyprland instance with a
+synthetic virtual pointer (never your desktop) — see `tests/INTERACTIONS.md`.
 
-- `barDeco.cpp/.hpp` — the decoration: hover tracking, reveal animation,
-  overlay geometry (top strip), clipping, buttons.
-- `main.cpp` — plugin registration, config values, Lua `add_button`.
-- `CMakeLists.txt` — explicit plugin sources, including the blur pass;
-  GCC compiles with `-fno-gnu-unique`. Applying that option only at link
-  time does not remove GNU-unique bindings from existing object files.
-- `setup.sh` / `uninstall.sh` — install/remove.
+## Credits & license
 
-### Verification
+- `barDeco` interaction machinery, pass-element plumbing, and overall design
+  lineage: [`hyprwm/hyprland-plugins` `hyprbars`](https://github.com/hyprwm/hyprland-plugins)
+  — BSD-3-Clause (`LICENSE`).
+- The **gradual blur matte** system (quarter-res SDF matte + live
+  `blurMainFramebuffer` compositing): derived from
+  [aura-blur](https://github.com/Sh3nron/omarchy-aura-blur), itself modeled
+  on the [ReactBits GradualBlur](https://reactbits.dev/animations/gradual-blur)
+  falloff.
+- Everything hover, spring, and cascade specific on top: © 2026 Yeshuah
+  Franco, MIT.
 
-Run the production shaders in a standalone EGL context (no plugin load):
-
-```sh
-c++ -std=c++23 tests/shaders.cpp -lEGL -lGLESv2 -o /tmp/aura-shader-test
-/tmp/aura-shader-test
-```
-
-This checks shader compilation, progressive softness over fine stripes,
-unchanged pixels below the fade, rounded corners, zero reach, hidden opacity,
-and large/high-DPI kernels. Test plugin changes in a separate compositor
-before installing. Never rebuild a library that a test compositor has mapped;
-exit that test compositor first or use a new build directory.
+Assembled for [Omarchy](https://omarchy.org).
