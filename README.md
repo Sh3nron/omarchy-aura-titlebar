@@ -80,18 +80,24 @@ compositor border you already had.
 
 ## Install
 
+Add the plugin, then run its reviewed setup script:
+
 ```sh
-git clone https://github.com/Sh3nron/omarchy-aura-titlebar.git
-cd aura-titlebar
-./setup.sh
+omarchy plugin add https://github.com/Sh3nron/omarchy-aura-titlebar.git
+~/.config/omarchy/plugins/io.github.sh3nron.aura-titlebar/setup.sh
 ```
 
 `setup.sh` builds against your installed Hyprland headers, installs the
 plugin by **atomic rename** (`aura_titlebar-<timestamp>.so` — the running
-compositor's mapped binary is never touched), and loads it. A hook in
-`~/.config/hypr/autostart.lua` loads the newest version at every login.
-Requirements: `hyprland`, `cmake`, `gcc`, `pkgconf`, matching dev headers
-(`hyprpm headers`).
+compositor's mapped binary is never touched), and loads it.
+
+Then enable the load-on-login hook in `~/.config/hypr/autostart.lua`:
+
+```lua
+o.exec_on_start('bash -c \'hyprctl plugin load "$(ls -dt '
+  .. '~/.config/omarchy/plugins/io.github.sh3nron.aura-titlebar/'
+  .. 'aura_titlebar-*.so | head -1)"\'')
+```
 
 ## Update
 

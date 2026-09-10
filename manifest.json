@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.sh3nron.aura-titlebar",
+  "name": "Aura Titlebar",
+  "version": "1.0.0",
+  "author": "Yeshuah Franco",
+  "license": "MIT",
+  "description": "Hover-revealed title bar that springs down over windows with progressive frosted blur and cascading window controls.",
+  "kinds": ["service"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml"
+  }
+}
