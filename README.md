@@ -90,6 +90,15 @@ filtered. Existing damage near the strip is expanded before rendering to
 avoid stale backdrop pixels; an idle or hidden bar does not schedule frames.
 Shader/allocation failure falls back to the conventional bar background.
 
+### Buttons & trigger zone
+
+- `bar_button_scale = 1.5` (default) — multiplier on every button's
+  configured `size` (looknfeel values 11/10/11 become ~16px circles). Scales
+  with monitor scale like everything else.
+- The **reveal trigger** is the top half of the strip (14px at default
+  height) — deliberate dip expected. The full strip keeps the bar alive
+  once revealed, so dipping below the trigger line doesn't hide it.
+
 Dynamic window rules: `aura_titlebar:no_bar`, `aura_titlebar:bar_color`,
 `aura_titlebar:title_color` (same syntax as hyprbars rules).
 
