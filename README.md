@@ -13,6 +13,8 @@
 
 </div>
 
+<img src="assets/preview.png" width="100%" alt="aura-titlebar in action: the frosted bar with title “OC | Omarchy hover title bar redesign” and window controls is revealed over an app window; the frame off to the right melt away under the progressive blur.">
+
 ---
 
 A Hyprland compositor plugin that gives every window an iPhone-style title
@@ -193,8 +195,8 @@ synthetic virtual pointer (never your desktop) — see `tests/INTERACTIONS.md`.
   Franco, MIT.
 
 Assembled for [Omarchy](https://omarchy.org).<div align="center">
-  <img src="assets/demo.gif" width="1096" alt="Cursor dips into the top of tiled windows: the title bar springs down over each app with frosted shoulders, then melts away.">
-  <p><em>Cropped at native scale from <a href="assets/demo.mp4">assets/demo.mp4</a> — open it for full-fidelity playback.</em></p>
+  <img src="assets/demo.gif" width="1096" alt="Hovering the top of a window reveals the title bar: graduated blur blooms over the app content as the bar springs down, with controls cascading in.">
+  <p><em>Cursor dips into the top of a window: the frosted bar with title and controls springs down, then melts back away.</em></p>
 </div>
 
 
