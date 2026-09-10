@@ -18,8 +18,7 @@ add_project_arguments(
   ],
   language: 'cpp')
 
-globber = run_command('find', '.', '-name', '*.cpp', check: true)
-src = globber.stdout().strip().split('\n')
+src = ['main.cpp', 'barDeco.cpp', 'BarPassElement.cpp', 'TitlebarBlur.cpp']
 
 hyprland = dependency('hyprland')
 

@@ -7,7 +7,7 @@ project(aura_titlebar
 
 set(CMAKE_CXX_STANDARD 23)
 
-file(GLOB_RECURSE SRC "*.cpp")
+set(SRC main.cpp barDeco.cpp BarPassElement.cpp TitlebarBlur.cpp)
 
 add_library(aura_titlebar SHARED ${SRC})
 
@@ -29,9 +29,10 @@ pkg_check_modules(deps REQUIRED IMPORTED_TARGET
 target_include_directories(aura_titlebar PRIVATE ${deps_INCLUDE_DIRS})
 target_link_libraries(aura_titlebar PRIVATE rt)
 
-# Hyprland plugin ABI: required flag (see upstream hyprbars Makefile)
+# GNU unique binding is chosen while compiling, not while linking existing
+# objects. It prevents safe symbol isolation between compositor and plugin.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set_property(TARGET aura_titlebar PROPERTY LINK_FLAGS "--no-gnu-unique")
+    target_compile_options(aura_titlebar PRIVATE -fno-gnu-unique)
 endif()
 
 install(TARGETS aura_titlebar)

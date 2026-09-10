@@ -7,6 +7,7 @@
 #include <hyprland/src/config/values/types/StringValue.hpp>
 #include <hyprland/src/config/values/types/ColorValue.hpp>
 #include <hyprland/src/config/values/types/FontWeightValue.hpp>
+#include <hyprland/src/config/values/types/FloatValue.hpp>
 
 inline HANDLE PHANDLE = nullptr;
 
@@ -37,6 +38,7 @@ struct SGlobalState {
         SP<Config::Values::CIntValue>        barPadding;
         SP<Config::Values::CIntValue>        barButtonPadding;
         SP<Config::Values::CIntValue>        barBlurReach;
+        SP<Config::Values::CFloatValue>      barBlurStrength, barTintOpacity, barButtonScale;
         SP<Config::Values::CBoolValue>       barBlur, barGradualBlur, barTitleEnabled, revealOnHover, enabled, iconOnHover;
         SP<Config::Values::CStringValue>     barTextFont, barTextAlign, barButtonsAlignment, onDoubleClick;
     } config;

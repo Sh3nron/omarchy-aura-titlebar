@@ -28,11 +28,17 @@
 
 #include <climits>
 #include <cstring>
+#include <hyprutils/utils/ScopeGuard.hpp>
 
 using namespace Render::GL;
 
 static CHyprColor configColor(Config::INTEGER color) {
     return CHyprColor{sc<uint64_t>(color)};
+}
+
+// size of each button on screen = user-configured size * global button scale
+static float effectiveButtonSize(const SHyprButton& b) {
+    return b.size * g_pGlobalState->config.barButtonScale->value();
 }
 
 CHyprBar::CHyprBar(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow) {
@@ -59,6 +65,37 @@ CHyprBar::CHyprBar(PHLWINDOW pWindow) : IHyprWindowDecoration(pWindow) {
     // pixels past the strip before settling — the iOS sheet feel.
     Animation::mgr()->createAnimation(0.F, m_fRevealProgress, Config::animationTree()->getAnimationPropertyConfig("windowsIn"), pWindow, AVARDAMAGE_NONE);
     m_fRevealProgress->setUpdateCallback([&](auto) { damageEntire(); });
+
+    // Expand existing damage before beginRender collects it. Unlike scheduling
+    // damage from draw(), this cannot create a continuous repaint loop. The
+    // support belongs to our kernels, independent of the global blur radius.
+    m_pRenderPreCallback = Event::bus()->m_events.render.pre.listen([this](PHLMONITOR monitor) {
+        m_fullscreenDrawn = false;
+        static auto blurEnabled = CConfigValue<Config::BOOL>("decoration:blur:enabled");
+        if (!monitor->m_damage.hasChanged() || !validMapped(m_pWindow) || m_hidden ||
+            m_fRevealProgress->value() <= .004F || !g_pGlobalState->config.enabled->value() ||
+            !g_pGlobalState->config.barGradualBlur->value() || !*blurEnabled ||
+            !g_pHyprRenderer->shouldRenderWindow(m_pWindow.lock(), monitor))
+            return;
+        auto box = monitorRelativeWindowBox(monitor);
+        box.h = std::min(box.h, (g_pGlobalState->config.barHeight->value() * 1.5 +
+                                std::max<int64_t>(0, g_pGlobalState->config.barBlurReach->value())) * monitor->m_scale);
+        const double support = std::ceil(60 * std::clamp(g_pGlobalState->config.barBlurStrength->value(), 0.F, 4.F) * monitor->m_scale) + 2;
+        box.expand(support);
+        if (!monitor->m_damage.getBufferDamage(1).intersect(box).empty())
+            monitor->m_damage.damage(box);
+    });
+    // Hyprland deliberately omits decoration draw() calls in true fullscreen.
+    // Emit our overlay once after that window's surface has been scheduled.
+    m_pFullscreenRenderCallback = Event::bus()->m_events.render.stage.listen([this](eRenderStage stage) {
+        auto& rd = g_pHyprRenderer->m_renderData;
+        if (stage != RENDER_POST_WINDOW || m_fullscreenDrawn || !validMapped(m_pWindow) ||
+            rd.currentWindow != m_pWindow.lock() ||
+            Fullscreen::controller()->getFullscreenModes(m_pWindow.lock()).internal != Fullscreen::FSMODE_FULLSCREEN)
+            return;
+        m_fullscreenDrawn = true;
+        draw(rd.pMonitor.lock(), m_pWindow->alphaValue(Desktop::View::WINDOW_ALPHA_FADE) * m_pWindow->alphaValue(Desktop::View::WINDOW_ALPHA_FULLSCREEN));
+    });
 }
 
 CHyprBar::~CHyprBar() {
@@ -314,15 +351,16 @@ bool CHyprBar::doButtonPress(Config::INTEGER barPadding, Config::INTEGER barButt
 
     for (auto& b : g_pGlobalState->buttons) {
         const auto BARBUF     = Vector2D{(int)stripBoxGlobal().w, barHeight};
-        Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - barButtonPadding - b.size - offset : offset), (BARBUF.y - b.size) / 2.0}.floor();
+        const auto BUTTONSIZE = effectiveButtonSize(b);
+        Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - barButtonPadding - BUTTONSIZE - offset : offset), (BARBUF.y - BUTTONSIZE) / 2.0}.floor();
 
-        if (VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + b.size + barButtonPadding, currentPos.y + b.size)) {
+        if (VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + BUTTONSIZE + barButtonPadding, currentPos.y + BUTTONSIZE)) {
             // hit on button
             g_pKeybindManager->m_dispatchers["exec"](b.cmd);
             return true;
         }
 
-        offset += barButtonPadding + b.size;
+        offset += barButtonPadding + BUTTONSIZE;
     }
     return false;
 }
@@ -338,7 +376,7 @@ void CHyprBar::renderBarTitle(const Vector2D& bufferSize, const float scale) {
 
     float      buttonSizes = BARBUTTONPADDING;
     for (auto& b : g_pGlobalState->buttons) {
-        buttonSizes += b.size + BARBUTTONPADDING;
+        buttonSizes += effectiveButtonSize(b) + BARBUTTONPADDING;
     }
 
     const int  scaledSize        = std::round(SIZE * scale);
@@ -361,7 +399,7 @@ size_t CHyprBar::getVisibleButtonCount(Config::INTEGER barButtonPadding, Config:
     size_t count          = 0;
 
     for (const auto& button : g_pGlobalState->buttons) {
-        const float buttonSpace = (button.size + barButtonPadding) * scale;
+        const float buttonSpace = (effectiveButtonSize(button) + barButtonPadding) * scale;
         if (availableSpace >= buttonSpace) {
             count++;
             availableSpace -= buttonSpace;
@@ -385,7 +423,7 @@ void CHyprBar::renderBarButtons(CBox* barBox, const float scale, const float a) 
     int        offset = BARPADDING * scale;
     for (size_t i = 0; i < visibleCount; ++i) {
         auto&      button           = g_pGlobalState->buttons[i];
-        const auto scaledButtonSize = button.size * scale;
+        const auto scaledButtonSize = effectiveButtonSize(button) * scale;
         const auto scaledButtonsPad = BARBUTTONPADDING * scale;
 
         auto       color = button.bgcol;
@@ -424,20 +462,21 @@ void CHyprBar::renderBarButtonsText(CBox* barBox, const float scale, const float
 
     for (size_t i = 0; i < visibleCount; ++i) {
         auto&      button           = g_pGlobalState->buttons[i];
-        const auto scaledButtonSize = button.size * scale;
+        const auto scaledButtonSize = effectiveButtonSize(button) * scale;
         const auto scaledButtonsPad = BARBUTTONPADDING * scale;
 
         // check if hovering here
         const auto BARBUF     = Vector2D{(int)stripBoxGlobal().w, HEIGHT};
-        Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - BARBUTTONPADDING - button.size - noScaleOffset : noScaleOffset), (BARBUF.y - button.size) / 2.0}.floor();
-        bool       hovering   = VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + button.size + BARBUTTONPADDING, currentPos.y + button.size);
-        noScaleOffset += BARBUTTONPADDING + button.size;
+        const auto BUTTONSIZE = effectiveButtonSize(button);
+        Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - BARBUTTONPADDING - BUTTONSIZE - noScaleOffset : noScaleOffset), (BARBUF.y - BUTTONSIZE) / 2.0}.floor();
+        bool       hovering   = VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + BUTTONSIZE + BARBUTTONPADDING, currentPos.y + BUTTONSIZE);
+        noScaleOffset += BARBUTTONPADDING + BUTTONSIZE;
 
         if ((!button.iconTex || button.iconTex->m_texID == 0) && !button.icon.empty()) {
             // render icon
             auto fgcol = button.userfg ? button.fgcol : (button.bgcol.r + button.bgcol.g + button.bgcol.b < 1) ? CHyprColor(0xFFFFFFFF) : CHyprColor(0xFF000000);
 
-            button.iconTex = g_pHyprRenderer->renderText(button.icon, fgcol, std::round(button.size * 0.62 * scale), false, "sans", scaledButtonSize);
+            button.iconTex = g_pHyprRenderer->renderText(button.icon, fgcol, std::round(effectiveButtonSize(button) * 0.62 * scale), false, "sans", scaledButtonSize);
         }
 
         if (!button.iconTex || button.iconTex->m_texID == 0)
@@ -483,7 +522,7 @@ void CHyprBar::draw(PHLMONITOR pMonitor, const float& a) {
     // samples the framebuffer before any bar pixel is committed
     if (g_pGlobalState->config.barGradualBlur->value()) {
         auto windowBox = monitorRelativeWindowBox(pMonitor);
-        if (auto blurElement = makeGradualBlurElement(pMonitor, windowBox))
+        if (auto blurElement = makeGradualBlurElement(pMonitor, windowBox, a))
             g_pHyprRenderer->m_renderPass.add(std::move(blurElement));
     }
 
@@ -491,64 +530,34 @@ void CHyprBar::draw(PHLMONITOR pMonitor, const float& a) {
     g_pHyprRenderer->m_renderPass.add(makeUnique<CBarPassElement>(data));
 }
 
-UP<IPassElement> CHyprBar::makeGradualBlurElement(PHLMONITOR pMonitor, const CBox& windowBoxScaled) {
+UP<IPassElement> CHyprBar::makeGradualBlurElement(PHLMONITOR pMonitor, const CBox& windowBoxScaled, float opacity) {
     static auto PENABLEBLURGLOBAL = CConfigValue<Config::BOOL>("decoration:blur:enabled");
-    if (!*PENABLEBLURGLOBAL)
+    if (!*PENABLEBLURGLOBAL || m_blurResources.failed)
         return nullptr;
-
-    const auto PWINDOW     = m_pWindow.lock();
-    if (!PWINDOW)
+    const auto window = m_pWindow.lock();
+    if (!window || windowBoxScaled.w <= 2 || windowBoxScaled.h <= 2)
         return nullptr;
-
-    const float PROGRESS    = m_fRevealProgress->value();
-    const float strength    = std::clamp(PROGRESS * 1.8F, 0.F, 1.F);
-    if (strength <= 0.004F)
+    const float progress = std::clamp(m_fRevealProgress->value(), 0.F, 1.5F);
+    const double height = std::min<double>(windowBoxScaled.h, g_pGlobalState->config.barHeight->value() * pMonitor->m_scale * progress);
+    if (height <= 0 || opacity <= .004F)
         return nullptr;
-
-    const auto  HEIGHT = g_pGlobalState->config.barHeight->value();
-    const auto  REACH  = g_pGlobalState->config.barBlurReach->value();
-
-    const double scaledBarHeight = sc<double>(HEIGHT) * pMonitor->m_scale;
-    const double scaledReach     = sc<double>(REACH) * pMonitor->m_scale;
-    const double scaledRound     = PWINDOW->rounding() > 1 ? (PWINDOW->rounding() - 1) * pMonitor->m_scale : 0.0;
-
-    // the band edge follows the reveal (overshoot sinks it a touch further)
-    double bandH = scaledBarHeight * std::clamp(PROGRESS, 0.F, 1.5F);
-    bandH     = std::clamp(bandH, 1.0, static_cast<double>(sc<double>(windowBoxScaled.h)));
-    double reach = std::clamp(scaledReach, 0.0, std::max(0.0, windowBoxScaled.h - bandH));
-
-    if (bandH + reach < 2)
-        return nullptr;
-
-    // CTextureMatteElement maps the blurred texture onto the box, so the box
-    // must be the full monitor (aura-blur does the same); the band lives in
-    // the matte alpha only
-    CTitlebarGradualBlurElement::SBlurData data;
-    data.monitor  = pMonitor;
-    data.deco     = this;
-    data.fullBox  = {0.0, 0.0, pMonitor->m_transformedSize.x, pMonitor->m_transformedSize.y};
-    data.card     = {windowBoxScaled.x, windowBoxScaled.y, windowBoxScaled.w, bandH};
-    data.round    = scaledRound;
-    data.reach    = reach;
-    data.strength = strength;
-
-    // regen key: descriptor mixing so untouched redraws re-use the last matte
-    auto mix = [&data](uint64_t h, double v) {
-        uint64_t bits;
-        std::memcpy(&bits, &v, sizeof(bits));
-        return h * 0x100000001b3ULL ^ bits;
+    const auto targetColor = m_bForcedBarColor.value_or(configColor(g_pGlobalState->config.barColor->value()));
+    if (targetColor != m_cRealBarColor->goal())
+        *m_cRealBarColor = targetColor;
+    auto tint = m_cRealBarColor->value();
+    tint.a *= std::clamp(g_pGlobalState->config.barTintOpacity->value(), 0.F, 1.F);
+    CTitlebarGradualBlurElement::SBlurData data{
+        .monitor = pMonitor,
+        .resources = &m_blurResources,
+        .window = windowBoxScaled,
+        .height = height,
+        .reach = std::clamp(double(g_pGlobalState->config.barBlurReach->value()) * pMonitor->m_scale, 0.0, windowBoxScaled.h - height),
+        .round = Fullscreen::controller()->getFullscreenModes(window).internal == Fullscreen::FSMODE_FULLSCREEN ? 0.0 : std::max(0.0, double(window->rounding()) * pMonitor->m_scale),
+        .roundingPower = window->roundingPower(),
+        .strength = std::clamp(g_pGlobalState->config.barBlurStrength->value(), 0.F, 4.F),
+        .opacity = opacity * std::clamp(progress * 1.8F, 0.F, 1.F),
+        .tint = tint,
     };
-    uint64_t key = 0xcbf29ce484222325ULL;
-    key = mix(key, windowBoxScaled.x);
-    key = mix(key, windowBoxScaled.y);
-    key = mix(key, windowBoxScaled.w);
-    key = mix(key, bandH);
-    key = mix(key, reach);
-    key = mix(key, scaledRound);
-    key = mix(key, std::round(strength * 64.F)); // quantized during animation
-    key = mix(key, sc<double>(pMonitor->m_scale));
-    data.gen = key;
-
     return makeUnique<CTitlebarGradualBlurElement>(data);
 }
 
@@ -589,7 +598,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     color.a *= a * RENDERALPHA;
 
     const bool BUTTONSRIGHT = ALIGNBUTTONS != "left";
-    const bool GRADUALBLUR  = g_pGlobalState->config.barGradualBlur->value() && *PENABLEBLURGLOBAL;
+    const bool GRADUALBLUR  = g_pGlobalState->config.barGradualBlur->value() && *PENABLEBLURGLOBAL && !m_blurResources.failed;
     const bool SHOULDBLUR   = ENABLEBLUR && *PENABLEBLURGLOBAL && color.a < 1.F && !GRADUALBLUR;
 
     const auto PWORKSPACE      = PWINDOW->m_workspace;
@@ -598,17 +607,16 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     // the bar lies inside the window box, so its curve must be the inner
     // curve of the user's rounding — never the outer (rounding + border)
     // curve stock hyprbars used when it sat on top of the border
-    const auto ROUNDR = PWINDOW->rounding();
+    const auto ROUNDR = Fullscreen::controller()->getFullscreenModes(PWINDOW).internal == Fullscreen::FSMODE_FULLSCREEN ? 0 : PWINDOW->rounding();
 
-    // the stencil box below is inset by 1 px, so its radius shrinks by 1 too
-    const auto scaledRounding = ROUNDR > 1 ? (ROUNDR - 1) * pMonitor->m_scale : 0;
+    const int scaledRounding = std::max(0, int(std::round(ROUNDR * pMonitor->m_scale)));
 
     m_seExtents = {{0, 0}, {0, 0}};
 
     // window box in monitor-local space; the bar covers only its top strip
     CBox windowBox = monitorRelativeWindowBox(pMonitor);
 
-    if (windowBox.w < 1 || windowBox.h < 1)
+    if (windowBox.w <= 2 || windowBox.h <= 2)
         return;
 
     const auto scaledBarHeight = sc<double>(HEIGHT) * pMonitor->m_scale;
@@ -625,15 +633,22 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
 
     // clip to the window box: never paints into gaps, over the border, or
     // outside the window's rounded corners
-    g_pHyprOpenGL->scissor(windowBox);
+    auto& renderData = g_pHyprRenderer->m_renderData;
+    const auto savedClip = renderData.clipBox;
+    renderData.clipBox = savedClip.w > 0 && savedClip.h > 0 ? savedClip.intersection(windowBox) : windowBox;
+    Hyprutils::Utils::CScopeGuard restoreClip([&] { renderData.clipBox = savedClip; });
+    if (renderData.clipBox.w <= 0 || renderData.clipBox.h <= 0)
+        return;
+    g_pHyprOpenGL->scissor(renderData.clipBox);
 
     if (ROUNDR > 1) {
-        CBox stencilBox = {windowBox.x + 1, windowBox.y + 1, windowBox.w - 2, windowBox.h - 2};
+        CBox stencilBox = windowBox;
 
         if (stencilBox.w < 1 || stencilBox.h < 1)
             return;
 
         glClearStencil(0);
+        glStencilMask(0xFF);
         glClear(GL_STENCIL_BUFFER_BIT);
 
         g_pHyprOpenGL->setCapStatus(GL_STENCIL_TEST, true);
@@ -646,28 +661,19 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
         g_pHyprOpenGL->renderRect(stencilBox, CHyprColor(0, 0, 0, 0), {.round = scaledRounding, .roundingPower = m_pWindow->roundingPower()});
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-        glStencilFunc(GL_NOTEQUAL, 1, -1);
-        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        glStencilFunc(GL_EQUAL, 1, -1);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
     }
 
     if (SHOULDBLUR)
         g_pHyprOpenGL->renderRect(barBox, color, {.round = scaledRounding, .roundingPower = m_pWindow->roundingPower(), .blur = true, .blurA = a * RENDERALPHA});
-    else
+    else if (!GRADUALBLUR)
         g_pHyprOpenGL->renderRect(barBox, color, {.round = scaledRounding, .roundingPower = m_pWindow->roundingPower()});
 
     // render title
     if (ENABLETITLE && (m_szLastTitle != PWINDOW->m_title || m_bWindowSizeChanged || !m_pTextTex || m_pTextTex->m_texID == 0 || m_bTitleColorChanged)) {
         m_szLastTitle = PWINDOW->m_title;
         renderBarTitle(barBox.size(), pMonitor->m_scale);
-    }
-
-    if (ROUNDR > 1) {
-        // cleanup stencil
-        glClearStencil(0);
-        glClear(GL_STENCIL_BUFFER_BIT);
-        g_pHyprOpenGL->setCapStatus(GL_STENCIL_TEST, false);
-        glStencilMask(-1);
-        glStencilFunc(GL_ALWAYS, 1, 0xFF);
     }
 
     const auto BARBUF = barBox.size();
@@ -680,7 +686,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
 
         float      buttonSizes = BARBUTTONPADDING;
         for (auto& b : g_pGlobalState->buttons) {
-            buttonSizes += b.size + BARBUTTONPADDING;
+            buttonSizes += effectiveButtonSize(b) + BARBUTTONPADDING;
         }
 
         const auto scaledButtonsSize = buttonSizes * pMonitor->m_scale;
@@ -696,9 +702,16 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     renderBarButtons(&textBox, pMonitor->m_scale, a * RENDERALPHA);
     m_bButtonsDirty = false;
 
-    g_pHyprOpenGL->scissor(nullptr);
-
     renderBarButtonsText(&textBox, pMonitor->m_scale, a * RENDERALPHA);
+
+    if (ROUNDR > 1) {
+        glClearStencil(0);
+        glClear(GL_STENCIL_BUFFER_BIT);
+        g_pHyprOpenGL->setCapStatus(GL_STENCIL_TEST, false);
+        glStencilMask(-1);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+    }
+    g_pHyprOpenGL->scissor(nullptr);
 
     m_bWindowSizeChanged = false;
     m_bTitleColorChanged = false;
@@ -800,9 +813,19 @@ bool CHyprBar::stripContainsPoint(const Vector2D& coords) {
     if (STRIP.w < 1 || STRIP.h < 1)
         return false;
 
-    // small padding above the top edge so moving up through the bar's top
-    // edge doesn't instantly hide it
+    // keep-alive zone: the full strip. small padding above the top edge so
+    // moving up through the bar's top edge doesn't instantly hide it
     return VECINRECT(coords, STRIP.x - 2, STRIP.y - 4, STRIP.x + STRIP.w + 2, STRIP.y + STRIP.h);
+}
+
+bool CHyprBar::triggerZoneContainsPoint(const Vector2D& coords) {
+    const auto STRIP = stripBoxGlobal();
+    if (STRIP.w < 1 || STRIP.h < 1)
+        return false;
+
+    // reveal trigger: only the top half of the strip. Chrome-style app UI
+    // buttons live ~20-40px deep; the bar must demand a deliberate dip
+    return VECINRECT(coords, STRIP.x - 2, STRIP.y - 4, STRIP.x + STRIP.w + 2, STRIP.y + STRIP.h / 2);
 }
 
 CBox CHyprBar::assignedBoxGlobal() {
@@ -845,9 +868,14 @@ bool CHyprBar::shouldReveal(const Vector2D& coords) {
 
     const auto PWINDOW = m_pWindow.lock();
 
+    // trigger only from the top half of the strip; once already revealed,
+    // the full strip keeps the bar alive
+    if (m_bRevealed)
+        return stripContainsPoint(coords);
+
     // the bar also lives over maximized and fullscreen windows: it is the
     // only way out (close / minimize / restore) once a window covers them
-    return stripContainsPoint(coords);
+    return triggerZoneContainsPoint(coords);
 }
 
 void CHyprBar::updateRules() {
@@ -888,15 +916,16 @@ void CHyprBar::damageOnButtonHover() {
 
     for (auto& b : g_pGlobalState->buttons) {
         const auto BARBUF     = Vector2D{(int)stripBoxGlobal().w, HEIGHT};
-        Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - BARBUTTONPADDING - b.size - offset : offset), (BARBUF.y - b.size) / 2.0}.floor();
+        const auto BUTTONSIZE = effectiveButtonSize(b);
+        Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - BARBUTTONPADDING - BUTTONSIZE - offset : offset), (BARBUF.y - BUTTONSIZE) / 2.0}.floor();
 
-        bool       hover = VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + b.size + BARBUTTONPADDING, currentPos.y + b.size);
+        bool       hover = VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + BUTTONSIZE + BARBUTTONPADDING, currentPos.y + BUTTONSIZE);
 
         if (hover != m_bButtonHovered) {
             m_bButtonHovered = hover;
             damageEntire();
         }
 
-        offset += BARBUTTONPADDING + b.size;
+        offset += BARBUTTONPADDING + effectiveButtonSize(b);
     }
 }

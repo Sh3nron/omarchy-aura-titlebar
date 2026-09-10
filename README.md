@@ -28,17 +28,18 @@ cd ~/Projects/aura-titlebar
 ./setup.sh
 ```
 
-`setup.sh` rebuilds the plugin against the system Hyprland headers and
-installs it under a versioned filename (atomic rename) — then loads it via
-`hyprctl plugin load`. A load hook in `~/.config/hypr/autostart.lua` picks
-the newest version at every login.
+`setup.sh` rebuilds against the system Hyprland headers and installs a unique
+versioned filename by atomic rename. If Aura is already loaded, the update
+activates on the next login. Use `./setup.sh --stage-only` to install without
+making any compositor or configuration changes. The existing load hook in
+`~/.config/hypr/autostart.lua` picks the newest version at login.
 
 **The one rule that produces session-killing aborts if broken:** never
 truncate/overwrite a `.so` the running compositor has mapped. Builds are
-installed by rename to `aura_titlebar-<timestamp>.so`; loading a rebuilt
-version in-session means pointing `hyprctl plugin load` at the new file —
-or simply re-login. Unload/reload of the same plugin in-session is not
-part of any supported flow.
+installed by rename to `aura_titlebar-<timestamp>-<unique-id>.so`. Updates
+require a new login; do not load a second copy or unload/reload in-session.
+Previous binaries are retained for rollback. To roll back, move the unwanted
+version outside the `aura_titlebar-*.so` filename pattern before the next login.
 
 ## Remove
 
@@ -68,19 +69,26 @@ Buttons are registered with `hl.plugin.aura_titlebar.add_button({ ... })`
 (right-to-left render order, as in hyprbars): the current setup wires
 `×` → close, `□` → maximize, `−` → `omarchy-shell window-controls minimize`.
 
-### Gradual blur (the ReactBits "Gradual Blur" system, compositor-side)
+### Progressive blur
 
-`bar_gradual_blur = true` (default) gives the bar a continuous frosted halo
-underneath — strongest at the strip, melting smoothly into the content
-below, respecting the theme's rounded corners. It's the same matte +
-live-blur system as the omarchy aura-blur popup halo, implemented as a
-per-window pass element. Tunables in the `aura_titlebar` block:
+`bar_gradual_blur = true` uses five overlapping vertical masks and increasing
+Gaussian blur radii, following [React Bits Gradual Blur](https://reactbits.dev/animations/gradual-blur).
+It blurs the live app backdrop before drawing crisp title text and controls.
+The blur stays strong across the title strip and becomes progressively weaker
+below it, clipped to the window's rounded boundary. This replaces the old
+single-radius blur with fading opacity and its outward halo.
 
-- `bar_blur_reach = 96` — how far below the bar the blur melts away
-- your `windowsIn` spring drives the band edge, so the frost slides in
-  with the bar
-- for a fully frosted bar surface (ReactBits style), give `bar_color`
-  some transparency, e.g. `bar_color = "rgba(1a1b26D9)"` (theme bg at ~0.85)
+- `bar_blur_reach = 96`: fade distance below the title strip, in logical pixels.
+- `bar_blur_strength = 2.0`: radius multiplier, from 0 to 4; independent of global blur size/passes.
+- `bar_tint_opacity = 0.20`: light theme tint, from 0 to 1, multiplied by `bar_color` alpha. Zero means blur only.
+- The existing `windowsIn` spring moves the band and controls together.
+- Global `decoration.blur.enabled` is respected. With gradual blur disabled,
+  the conventional bar background and `bar_blur` setting are used.
+
+GPU intermediates are reused, and only the strip plus kernel support is
+filtered. Existing damage near the strip is expanded before rendering to
+avoid stale backdrop pixels; an idle or hidden bar does not schedule frames.
+Shader/allocation failure falls back to the conventional bar background.
 
 Dynamic window rules: `aura_titlebar:no_bar`, `aura_titlebar:bar_color`,
 `aura_titlebar:title_color` (same syntax as hyprbars rules).
@@ -102,7 +110,22 @@ Dynamic window rules: `aura_titlebar:no_bar`, `aura_titlebar:bar_color`,
 - `barDeco.cpp/.hpp` — the decoration: hover tracking, reveal animation,
   overlay geometry (top strip), clipping, buttons.
 - `main.cpp` — plugin registration, config values, Lua `add_button`.
-- `CMakeLists.txt` — standard build; the `-Wl,--no-gnu-unique` link flag
-  (via `LINK_FLAGS`) is **required** — omitting it aborts Hyprland inside
-  `dlsym` on load.
+- `CMakeLists.txt` — explicit plugin sources, including the blur pass;
+  GCC compiles with `-fno-gnu-unique`. Applying that option only at link
+  time does not remove GNU-unique bindings from existing object files.
 - `setup.sh` / `uninstall.sh` — install/remove.
+
+### Verification
+
+Run the production shaders in a standalone EGL context (no plugin load):
+
+```sh
+c++ -std=c++23 tests/shaders.cpp -lEGL -lGLESv2 -o /tmp/aura-shader-test
+/tmp/aura-shader-test
+```
+
+This checks shader compilation, progressive softness over fine stripes,
+unchanged pixels below the fade, rounded corners, zero reach, hidden opacity,
+and large/high-DPI kernels. Test plugin changes in a separate compositor
+before installing. Never rebuild a library that a test compositor has mapped;
+exit that test compositor first or use a new build directory.

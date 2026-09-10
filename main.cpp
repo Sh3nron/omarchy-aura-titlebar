@@ -230,6 +230,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_pGlobalState->config.barButtonPadding    = makeShared<Config::Values::CIntValue>("plugin:aura_titlebar:bar_button_padding", "Padding of the bar buttons", 5);
     g_pGlobalState->config.barBlurReach = makeShared<Config::Values::CIntValue>(
         "plugin:aura_titlebar:bar_blur_reach", "Gradual blur reach below the bar (pixels)", 96);
+    g_pGlobalState->config.barBlurStrength = makeShared<Config::Values::CFloatValue>(
+        "plugin:aura_titlebar:bar_blur_strength", "Progressive blur strength", 2.F, Config::Values::SFloatValueOptions{.min = 0.F, .max = 4.F});
+    g_pGlobalState->config.barTintOpacity = makeShared<Config::Values::CFloatValue>(
+        "plugin:aura_titlebar:bar_tint_opacity", "Theme tint opacity over progressive blur", .20F, Config::Values::SFloatValueOptions{.min = 0.F, .max = 1.F});
+    g_pGlobalState->config.barButtonScale = makeShared<Config::Values::CFloatValue>(
+        "plugin:aura_titlebar:bar_button_scale", "Multiplier on every title bar button's size", 1.5F, Config::Values::SFloatValueOptions{.min = 0.5F, .max = 4.F});
     g_pGlobalState->config.enabled             = makeShared<Config::Values::CBoolValue>("plugin:aura_titlebar:enabled", "Whether bars are enabled", true);
     g_pGlobalState->config.revealOnHover = makeShared<Config::Values::CBoolValue>(
         "plugin:aura_titlebar:reveal_on_hover", "Whether the bar only appears while the cursor hovers the title strip", true);
@@ -246,6 +252,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barBlur);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barGradualBlur);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barBlurReach);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barBlurStrength);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barTintOpacity);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barButtonScale);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barTextFont);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barTextAlign);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barButtonsAlignment);

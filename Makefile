@@ -10,7 +10,7 @@ CXXFLAGS += -shared -fPIC -std=c++2b -Wno-c++11-narrowing
 INCLUDES = `pkg-config --cflags pixman-1 libdrm hyprland libinput libudev wayland-server xkbcommon`
 LIBS =
 
-SRC = main.cpp barDeco.cpp BarPassElement.cpp
+SRC = main.cpp barDeco.cpp BarPassElement.cpp TitlebarBlur.cpp
 TARGET = hyprbars.so
 
 all: $(TARGET)

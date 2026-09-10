@@ -13,6 +13,7 @@
 #include <hyprland/src/helpers/time/Time.hpp>
 #include <hyprland/src/helpers/signal/Signal.hpp>
 #include "globals.hpp"
+#include "TitlebarBlur.hpp"
 
 #define private public
 #include <hyprland/src/managers/input/InputManager.hpp>
@@ -65,8 +66,7 @@ class CHyprBar : public IHyprWindowDecoration {
     CBox                       m_bAssignedBox;
 
     SP<Render::ITexture>       m_pTextTex;
-    SP<Render::IFramebuffer>   m_pMatteFB;
-    uint64_t                   m_ullMatteKey = 0;
+    STitlebarBlurResources     m_blurResources;
 
     bool                       m_bWindowSizeChanged = false;
     bool                       m_hidden             = false;
@@ -113,6 +113,7 @@ class CHyprBar : public IHyprWindowDecoration {
     CBox stripBoxGlobal();
     CBox monitorRelativeWindowBox(PHLMONITOR monitor);
     bool stripContainsPoint(const Vector2D& coords);
+    bool triggerZoneContainsPoint(const Vector2D& coords);
 
     void setReveal(bool want);
     bool shouldReveal(const Vector2D& coords);
@@ -124,6 +125,9 @@ class CHyprBar : public IHyprWindowDecoration {
 
     CHyprSignalListener m_pTouchMoveCallback;
     CHyprSignalListener m_pMouseMoveCallback;
+    CHyprSignalListener m_pRenderPreCallback;
+    CHyprSignalListener m_pFullscreenRenderCallback;
+    bool m_fullscreenDrawn = false;
 
     std::string         m_szLastTitle;
 
@@ -141,21 +145,7 @@ class CHyprBar : public IHyprWindowDecoration {
 
     size_t getVisibleButtonCount(Config::INTEGER barButtonPadding, Config::INTEGER barPadding, const Vector2D& bufferSize, const float scale);
 
-    UP<IPassElement> makeGradualBlurElement(PHLMONITOR monitor, const CBox& windowBoxScaled);
-
-    SP<Render::IFramebuffer> matteFB() const {
-        return m_pMatteFB;
-    }
-    void setMatteFB(SP<Render::IFramebuffer> fb) {
-        m_pMatteFB = fb;
-    }
-
-    uint64_t matteKey() const {
-        return m_ullMatteKey;
-    }
-    void setMatteKey(uint64_t key) {
-        m_ullMatteKey = key;
-    }
+    UP<IPassElement> makeGradualBlurElement(PHLMONITOR monitor, const CBox& windowBoxScaled, float opacity);
 
     friend class CTitlebarGradualBlurElement;
     friend class CBarPassElement;
