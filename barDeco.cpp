@@ -523,11 +523,13 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     const auto PWORKSPACE      = PWINDOW->m_workspace;
     const auto WORKSPACEOFFSET = PWORKSPACE && !PWINDOW->m_pinned ? PWORKSPACE->m_renderOffset->value() : Vector2D();
 
-    // the bar's own rounding matches the window's top corners; no border of
-    // our own is ever drawn — the user's compositor border stays untouched
-    const auto ROUNDING = PWINDOW->rounding() + PWINDOW->getRealBorderSize();
+    // the bar lies inside the window box, so its curve must be the inner
+    // curve of the user's rounding — never the outer (rounding + border)
+    // curve stock hyprbars used when it sat on top of the border
+    const auto ROUNDR = PWINDOW->rounding();
 
-    const auto scaledRounding = ROUNDING > 0 ? ROUNDING * pMonitor->m_scale - 2 /* idk why but otherwise it looks bad due to the gaps */ : 0;
+    // the stencil box below is inset by 1 px, so its radius shrinks by 1 too
+    const auto scaledRounding = ROUNDR > 1 ? (ROUNDR - 1) * pMonitor->m_scale : 0;
 
     m_seExtents = {{0, 0}, {0, 0}};
 
@@ -557,8 +559,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     // outside the window's rounded corners
     g_pHyprOpenGL->scissor(windowBox);
 
-    if (ROUNDING) {
-        // the +1 is a shit garbage temp fix until renderRect supports an alpha matte
+    if (ROUNDR > 1) {
         CBox stencilBox = {windowBox.x + 1, windowBox.y + 1, windowBox.w - 2, windowBox.h - 2};
 
         if (stencilBox.w < 1 || stencilBox.h < 1)
@@ -592,7 +593,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
         renderBarTitle(barBox.size(), pMonitor->m_scale);
     }
 
-    if (ROUNDING) {
+    if (ROUNDR > 1) {
         // cleanup stencil
         glClearStencil(0);
         glClear(GL_STENCIL_BUFFER_BIT);
@@ -617,7 +618,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
         const auto scaledButtonsSize = buttonSizes * pMonitor->m_scale;
         const auto scaledBarPadding  = BARPADDING * pMonitor->m_scale;
         const auto xOffset           = ALIGN == "left" ? std::round(scaledBarPadding + (BUTTONSRIGHT ? 0 : scaledButtonsSize)) :
-                                                         std::round(((BARBUF.x - PWINDOW->getRealBorderSize() * pMonitor->m_scale) / 2.0 - m_pTextTex->m_size.x / 2.0));
+                                                         std::round(BARBUF.x / 2.0 - m_pTextTex->m_size.x / 2.0);
         const auto yOffset           = std::round((scaledBarHeight - m_pTextTex->m_size.y) / 2.0);
         CBox       titleBox          = {barBox.x + xOffset, barBox.y + yOffset, m_pTextTex->m_size.x, m_pTextTex->m_size.y};
 
@@ -758,9 +759,8 @@ bool CHyprBar::shouldReveal(const Vector2D& coords) {
 
     const auto PWINDOW = m_pWindow.lock();
 
-    if (Fullscreen::controller()->isFullscreen(PWINDOW, Fullscreen::FSMODE_FULLSCREEN))
-        return false;
-
+    // the bar also lives over maximized and fullscreen windows: it is the
+    // only way out (close / minimize / restore) once a window covers them
     return stripContainsPoint(coords);
 }
 

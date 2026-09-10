@@ -28,9 +28,17 @@ cd ~/Projects/aura-titlebar
 ./setup.sh
 ```
 
-`setup.sh` rebuilds `aura_titlebar.so` against the system Hyprland headers,
-loads it via `hyprctl plugin load`, and config re-reloads. A load hook in
-`~/.config/hypr/autostart.lua` runs at every login.
+`setup.sh` rebuilds the plugin against the system Hyprland headers and
+installs it under a versioned filename (atomic rename) — then loads it via
+`hyprctl plugin load`. A load hook in `~/.config/hypr/autostart.lua` picks
+the newest version at every login.
+
+**The one rule that produces session-killing aborts if broken:** never
+truncate/overwrite a `.so` the running compositor has mapped. Builds are
+installed by rename to `aura_titlebar-<timestamp>.so`; loading a rebuilt
+version in-session means pointing `hyprctl plugin load` at the new file —
+or simply re-login. Unload/reload of the same plugin in-session is not
+part of any supported flow.
 
 ## Remove
 
