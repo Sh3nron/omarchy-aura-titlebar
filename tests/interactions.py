@@ -37,18 +37,16 @@ try:
     event(f'move {grab[0]+2} {grab[1]+1}')
     assert not window()['floating'], 'tiny pointer jitter detached the window'
     event(f'move {grab[0]+30} {grab[1]+40}',.6)
-    detached=window()
-    print('before:',before['at'],before['size'],'detached:',detached['at'],detached['size'],flush=True)
-    assert detached['floating'], 'drag did not detach'
-    assert detached['size']==before['size'], 'detachment changed size'
-    assert detached['at']==[x+30,y+40], 'detachment changed grab offset'
+    dragging=window()
+    print('before:',before['at'],before['size'],'mid-drag:',dragging['at'],dragging['size'],flush=True)
+    assert dragging['floating'], 'native tiled drag did not pick the window up'
+    assert dragging['size']==before['size'], 'drag changed the remembered size'
     event(f'move {grab[0]+80} {grab[1]+70}',.5)
-    moved=window()
-    assert moved['size']==before['size'] and moved['at']==[x+80,y+70], 'native movement lost anchor'
     event('button 0',.3)
-    assert window()['floating'], 'release unexpectedly retiled'
-    event('move 400 400')
-    assert window()['at']==moved['at'], 'drag stuck after release'
+    # The drag controller is tiling-aware: dropping back over the layout
+    # re-tiles the window (swap semantics), so release must never leave a
+    # tiled window floating.
+    assert not window()['floating'], 'release unexpectedly stayed floating'
     # Use maximize as an observable button action scoped to this compositor.
     cmd=f'hyprctl -i {sig} dispatch '+"'hl.dsp.window.fullscreen({mode=\"maximized\",action=\"toggle\"})'"
     ctl('eval','hl.plugin.aura_titlebar.add_button({bg_color="#7aa2f7",fg_color="#ffffff",size=11,icon="□",action='+json.dumps(cmd)+'})')
@@ -71,7 +69,7 @@ try:
     event(f'move {button[0]} {button[1]}')
     event('button 1');event('button 0',.6)
     assert window()['fullscreen']!=fs,'release on button did not activate'
-    print('PASS: tiled detach preserves size/anchor; native move; floating release; click jitter; press/release/cancel')
+    print('PASS: tiled drag picks up, release re-tiles; click jitter; press/release/cancel')
     ctl('dispatch','hl.dsp.window.fullscreen({mode="fullscreen",action="toggle"})')
     time.sleep(.7)
     before=window();x,y=before['at'];w,h=before['size']

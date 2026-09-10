@@ -395,10 +395,26 @@ bool CHyprBar::detachForDrag(const Vector2D& pointer) {
 }
 
 void CHyprBar::handleMovement() {
-    if (!detachForDrag(g_pInputManager->getMouseCoordsInternal()))
+    if (!validMapped(m_pWindow))
         return;
-    g_layoutManager->beginDragTarget(m_pWindow->layoutTarget(), MBIND_MOVE, std::nullopt, true);
-    m_bDraggingThis = g_layoutManager->dragController()->target() == m_pWindow->layoutTarget();
+
+    const auto window = m_pWindow.lock();
+    const auto target = window->layoutTarget();
+    if (!target || !target->space())
+        return;
+
+    // fullscreen windows must leave fullscreen to move at all
+    if (Fullscreen::controller()->isFullscreen(window))
+        Fullscreen::controller()->setFullscreenMode(window, Fullscreen::FSMODE_NONE);
+
+    // Let the compositor's own drag controller run the show. It is
+    // tiling-aware: a tiled window follows the cursor and, on drop,
+    // re-tiles — swapping with a neighbor when you drag it over one —
+    // instead of staying floating. Floating windows just move. Pre-floating
+    // the window from the plugin (as detachForDrag does for touch) defeats
+    // that re-tile, which regressed tiled grabbing to permanent float.
+    g_layoutManager->beginDragTarget(target, MBIND_MOVE, std::nullopt, true);
+    m_bDraggingThis = g_layoutManager->dragController()->target() == target;
 }
 
 void CHyprBar::syncButtonAnimations() {
