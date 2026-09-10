@@ -192,4 +192,9 @@ synthetic virtual pointer (never your desktop) — see `tests/INTERACTIONS.md`.
 - Everything hover, spring, and cascade specific on top: © 2026 Yeshuah
   Franco, MIT.
 
-Assembled for [Omarchy](https://omarchy.org).
+Assembled for [Omarchy](https://omarchy.org).<div align="center">
+  <img src="assets/demo.gif" width="1096" alt="Cursor dips into the top of tiled windows: the title bar springs down over each app with frosted shoulders, then melts away.">
+  <p><em>Cropped at native scale from <a href="assets/demo.mp4">assets/demo.mp4</a> — open it for full-fidelity playback.</em></p>
+</div>
+
+
