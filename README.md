@@ -79,7 +79,7 @@ compositor border you already had.
 ## Install
 
 ```sh
-git clone https://github.com/Sh3nron/aura-titlebar.git
+git clone https://github.com/Sh3nron/omarchy-aura-titlebar.git
 cd aura-titlebar
 ./setup.sh
 ```
