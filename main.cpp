@@ -228,6 +228,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_pGlobalState->config.barButtonsAlignment = makeShared<Config::Values::CStringValue>("plugin:aura_titlebar:bar_buttons_alignment", "Alignment of the bar buttons", "right");
     g_pGlobalState->config.barPadding          = makeShared<Config::Values::CIntValue>("plugin:aura_titlebar:bar_padding", "Padding of the bar", 7);
     g_pGlobalState->config.barButtonPadding    = makeShared<Config::Values::CIntValue>("plugin:aura_titlebar:bar_button_padding", "Padding of the bar buttons", 5);
+    g_pGlobalState->config.barHoverZone = makeShared<Config::Values::CIntValue>(
+        "plugin:aura_titlebar:bar_hover_zone", "Reveal trigger depth from the window's top edge (pixels)", 10);
     g_pGlobalState->config.barBlurReach = makeShared<Config::Values::CIntValue>(
         "plugin:aura_titlebar:bar_blur_reach", "Gradual blur reach below the bar (pixels)", 96);
     g_pGlobalState->config.barBlurStrength = makeShared<Config::Values::CFloatValue>(
@@ -239,6 +241,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_pGlobalState->config.enabled             = makeShared<Config::Values::CBoolValue>("plugin:aura_titlebar:enabled", "Whether bars are enabled", true);
     g_pGlobalState->config.revealOnHover = makeShared<Config::Values::CBoolValue>(
         "plugin:aura_titlebar:reveal_on_hover", "Whether the bar only appears while the cursor hovers the title strip", true);
+    g_pGlobalState->config.barButtonsPop = makeShared<Config::Values::CBoolValue>(
+        "plugin:aura_titlebar:bar_buttons_pop", "Staggered pop-in/out cascade for the title bar buttons", true);
     g_pGlobalState->config.iconOnHover         = makeShared<Config::Values::CBoolValue>("plugin:aura_titlebar:icon_on_hover", "Whether to use an icon on hover of the buttons", false);
     g_pGlobalState->config.onDoubleClick       = makeShared<Config::Values::CStringValue>("plugin:aura_titlebar:on_double_click", "Action to execute on double click of the bar", "");
 
@@ -260,8 +264,10 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barButtonsAlignment);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barPadding);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barButtonPadding);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barHoverZone);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.enabled);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.revealOnHover);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barButtonsPop);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.iconOnHover);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.onDoubleClick);
 

@@ -95,9 +95,12 @@ Shader/allocation failure falls back to the conventional bar background.
 - `bar_button_scale = 1.5` (default) — multiplier on every button's
   configured `size` (looknfeel values 11/10/11 become ~16px circles). Scales
   with monitor scale like everything else.
-- The **reveal trigger** is the top half of the strip (14px at default
-  height) — deliberate dip expected. The full strip keeps the bar alive
-  once revealed, so dipping below the trigger line doesn't hide it.
+- The **reveal trigger** is the top `bar_hover_zone` pixels of the strip
+  (default 10px) — a deliberate dip. The full strip keeps the bar alive
+  once revealed, so moving below the trigger line doesn't hide it.
+- Buttons pop in with a **staggered spring cascade** (close → maximize →
+  minimize), bouncy ease-out-back scale from 0.6× with fading alpha, and
+  cascade away in reverse on hide. `bar_buttons_pop = true` by default.
 
 Dynamic window rules: `aura_titlebar:no_bar`, `aura_titlebar:bar_color`,
 `aura_titlebar:title_color` (same syntax as hyprbars rules).

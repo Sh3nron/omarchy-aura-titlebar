@@ -36,6 +36,18 @@ static CHyprColor configColor(Config::INTEGER color) {
     return CHyprColor{sc<uint64_t>(color)};
 }
 
+// 2026-grade button pop: per-button ease-out-back once off the reveal
+// timeline (bouncy scale past 100% then settle), plus ease-out-cubic alpha
+static double easeOutBack(double t) {
+    constexpr double C1 = 1.70158;
+    constexpr double C3 = C1 + 1;
+    return 1 + C3 * std::pow(t - 1, 3) + C1 * std::pow(t - 1, 2);
+}
+
+static double easeOutCubic(double t) {
+    return 1 - std::pow(1 - t, 3);
+}
+
 // size of each button on screen = user-configured size * global button scale
 static float effectiveButtonSize(const SHyprButton& b) {
     return b.size * g_pGlobalState->config.barButtonScale->value();
@@ -420,11 +432,22 @@ void CHyprBar::renderBarButtons(CBox* barBox, const float scale, const float a) 
     const auto visibleCount    = getVisibleButtonCount(BARBUTTONPADDING, BARPADDING, Vector2D{barBox->w, barBox->h}, scale);
     const bool INVALIDATEICONS = m_bButtonsDirty || m_bWindowSizeChanged;
 
+    const float PROGRESS        = std::clamp(m_fRevealProgress->value(), 0.F, 1.F);
+    const bool  POP             = g_pGlobalState->config.barButtonsPop->value();
+    const double STAGGER        = 0.12; // of the reveal timeline, per button
+    const double SPAN           = 0.45; // each button animates over this slice
+
     int        offset = BARPADDING * scale;
     for (size_t i = 0; i < visibleCount; ++i) {
         auto&      button           = g_pGlobalState->buttons[i];
         const auto scaledButtonSize = effectiveButtonSize(button) * scale;
         const auto scaledButtonsPad = BARBUTTONPADDING * scale;
+
+        // staggered pop-in: close leads, then maximize, then minimize;
+        // with pop disabled every button simply rides the bar's own alpha
+        double pop = POP ? std::clamp((PROGRESS - STAGGER * sc<double>(i)) / SPAN, 0.0, 1.0) : std::clamp(PROGRESS, 0.F, 1.F);
+        const double scaleFrac = POP ? std::clamp(0.6 + 0.4 * easeOutBack(pop), 0.02, 1.35) : 1.0;
+        const float  popAlpha  = POP ? sc<float>(easeOutCubic(pop)) : a;
 
         auto       color = button.bgcol;
 
@@ -434,10 +457,11 @@ void CHyprBar::renderBarButtons(CBox* barBox, const float scale, const float a) 
                 button.iconTex = nullptr;
         }
 
-        color.a *= a;
+        color.a *= popAlpha;
 
-        CBox buttonBox = {barBox->x + (BUTTONSRIGHT ? barBox->w - offset - scaledButtonSize : offset), barBox->y + (barBox->h - scaledButtonSize) / 2.0, scaledButtonSize,
-                          scaledButtonSize};
+        const float renderSize    = sc<float>(scaledButtonSize * scaleFrac);
+        const float centerOffsetX = BUTTONSRIGHT ? barBox->w - offset - scaledButtonSize + scaledButtonSize / 2.0 : offset + scaledButtonSize / 2.0;
+        CBox buttonBox = {barBox->x + centerOffsetX - renderSize / 2.0, barBox->y + barBox->h / 2.0 - renderSize / 2.0, renderSize, renderSize};
         buttonBox.round();
 
         g_pHyprOpenGL->renderRect(buttonBox, color, {.round = static_cast<int>(std::round(scaledButtonSize / 2.0)), .roundingPower = 2.F});
@@ -457,6 +481,11 @@ void CHyprBar::renderBarButtonsText(CBox* barBox, const float scale, const float
     const auto visibleCount = getVisibleButtonCount(BARBUTTONPADDING, BARPADDING, Vector2D{barBox->w, barBox->h}, scale);
     const auto COORDS       = cursorRelativeToBar();
 
+    const float PROGRESS        = std::clamp(m_fRevealProgress->value(), 0.F, 1.F);
+    const bool  POP             = g_pGlobalState->config.barButtonsPop->value();
+    const double STAGGER        = 0.12;
+    const double SPAN           = 0.45;
+
     int        offset        = BARPADDING * scale;
     float      noScaleOffset = BARPADDING;
 
@@ -464,6 +493,10 @@ void CHyprBar::renderBarButtonsText(CBox* barBox, const float scale, const float
         auto&      button           = g_pGlobalState->buttons[i];
         const auto scaledButtonSize = effectiveButtonSize(button) * scale;
         const auto scaledButtonsPad = BARBUTTONPADDING * scale;
+
+        double pop = POP ? std::clamp((PROGRESS - STAGGER * sc<double>(i)) / SPAN, 0.0, 1.0) : std::clamp(PROGRESS, 0.F, 1.F);
+        const double scaleFrac = POP ? std::clamp(0.6 + 0.4 * easeOutBack(pop), 0.02, 1.35) : 1.0;
+        const float  popAlpha  = POP ? sc<float>(easeOutCubic(pop)) : a;
 
         // check if hovering here
         const auto BARBUF     = Vector2D{(int)stripBoxGlobal().w, HEIGHT};
@@ -482,12 +515,14 @@ void CHyprBar::renderBarButtonsText(CBox* barBox, const float scale, const float
         if (!button.iconTex || button.iconTex->m_texID == 0)
             continue;
 
-        const auto iconX = barBox->x + (BUTTONSRIGHT ? barBox->width - offset - scaledButtonSize / 2.0 : offset + scaledButtonSize / 2.0) - button.iconTex->m_size.x / 2.0;
-        const auto iconY = barBox->y + barBox->height / 2.0 - button.iconTex->m_size.y / 2.0;
-        CBox       pos   = {iconX, iconY, button.iconTex->m_size.x, button.iconTex->m_size.y};
+        const float centerX = barBox->x + (BUTTONSRIGHT ? barBox->width - offset - scaledButtonSize / 2.0 : offset + scaledButtonSize / 2.0);
+        const float centerY = barBox->y + barBox->height / 2.0;
+        const float glyphSize = sc<float>(button.iconTex->m_size.x * scaleFrac);
+        const float glyphH    = sc<float>(button.iconTex->m_size.y * scaleFrac);
+        CBox        pos       = {centerX - glyphSize / 2.0, centerY - glyphH / 2.0, glyphSize, glyphH};
 
         if (!ICONONHOVER || (ICONONHOVER && m_iButtonHoverState > 0))
-            g_pHyprOpenGL->renderTexture(button.iconTex, pos, {.a = a});
+            g_pHyprOpenGL->renderTexture(button.iconTex, pos, {.a = popAlpha * a});
         offset += scaledButtonsPad + scaledButtonSize;
 
         bool currentBit = (m_iButtonHoverState & (1 << i)) != 0;
@@ -823,9 +858,11 @@ bool CHyprBar::triggerZoneContainsPoint(const Vector2D& coords) {
     if (STRIP.w < 1 || STRIP.h < 1)
         return false;
 
-    // reveal trigger: only the top half of the strip. Chrome-style app UI
-    // buttons live ~20-40px deep; the bar must demand a deliberate dip
-    return VECINRECT(coords, STRIP.x - 2, STRIP.y - 4, STRIP.x + STRIP.w + 2, STRIP.y + STRIP.h / 2);
+    // reveal trigger: `bar_hover_zone` deep from the window's top edge
+    // (10px by default). Chrome-style app UI buttons live ~20-40px deep;
+    // the bar must demand a deliberate dip.
+    const auto ZONE = std::clamp<Config::INTEGER>(g_pGlobalState->config.barHoverZone->value(), 0, STRIP.h);
+    return VECINRECT(coords, STRIP.x - 2, STRIP.y - 4, STRIP.x + STRIP.w + 2, STRIP.y + ZONE);
 }
 
 CBox CHyprBar::assignedBoxGlobal() {
