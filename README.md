@@ -107,6 +107,16 @@ Dynamic window rules: `aura_titlebar:no_bar`, `aura_titlebar:bar_color`,
 
 ## Behavior notes
 
+- Controls enlarge by 12% and brighten on hover, compress while pressed, and
+  animate back on release. Their hit areas stay fixed during animation.
+  Actions fire on release over the original button; moving away cancels them.
+- A titlebar drag begins after 4 logical pixels of movement. Detaching tiled
+  or fullscreen windows preserves the visible size and original grab offset,
+  then uses native floating-window dragging. Releasing leaves the window
+  floating. A simple click or small pointer jitter does not detach it.
+- Touch dragging also preserves size and the grab point, without the previous
+  forced half-screen resize, pinning, or retiling on release.
+
 - The reveal animation **shares the `windowsIn` spring curve**, so tune it
   via `hl.animation({ leaf = "windowsIn", ... })` in `looknfeel.lua`.
 - Scheduled clicks pass through to the app while the bar is hidden; the bar

@@ -28,6 +28,9 @@
 
 #include <climits>
 #include <cstring>
+#include <linux/input-event-codes.h>
+#include <hyprland/src/layout/LayoutManager.hpp>
+#include <hyprland/src/layout/target/Target.hpp>
 #include <hyprutils/utils/ScopeGuard.hpp>
 
 using namespace Render::GL;
@@ -192,15 +195,16 @@ bool CHyprBar::inputIsValid() {
 }
 
 void CHyprBar::onMouseButton(Event::SCallbackInfo& info, IPointer::SButtonEvent e) {
-    if (!inputIsValid())
+    if (e.button != BTN_LEFT)
         return;
-
+    // Finish our own grab even if release occurs outside the window.
     if (e.state != WL_POINTER_BUTTON_STATE_PRESSED) {
-        handleUpEvent(info);
+        if (m_bCancelledDown && !m_bTouchEv)
+            handleUpEvent(info);
         return;
     }
-
-    handleDownEvent(info, std::nullopt);
+    if (inputIsValid())
+        handleDownEvent(info, std::nullopt);
 }
 
 void CHyprBar::onTouchDown(Event::SCallbackInfo& info, ITouch::SDownEvent e) {
@@ -212,7 +216,7 @@ void CHyprBar::onTouchDown(Event::SCallbackInfo& info, ITouch::SDownEvent e) {
 }
 
 void CHyprBar::onTouchUp(Event::SCallbackInfo& info, ITouch::SUpEvent e) {
-    if (!m_bDragPending || !m_bTouchEv || e.touchID != m_touchId)
+    if (!m_bCancelledDown || !m_bTouchEv || e.touchID != m_touchId)
         return;
 
     handleUpEvent(info);
@@ -220,8 +224,7 @@ void CHyprBar::onTouchUp(Event::SCallbackInfo& info, ITouch::SUpEvent e) {
 
 void CHyprBar::onMouseMove(Vector2D coords) {
     // ensure proper redraws of button icons on hover when using hardware cursors
-    if (g_pGlobalState->config.iconOnHover->value())
-        damageOnButtonHover();
+    damageOnButtonHover();
 
     if (g_pGlobalState->config.revealOnHover->value() && !m_bTouchEv) {
         const bool want = shouldReveal(g_pInputManager->getMouseCoordsInternal());
@@ -232,27 +235,43 @@ void CHyprBar::onMouseMove(Vector2D coords) {
     if (!m_bDragPending || m_bTouchEv || !validMapped(m_pWindow) || m_touchId != 0)
         return;
 
+    if ((g_pInputManager->getMouseCoordsInternal() - m_pressPointer).distance(Vector2D{}) < 4.0)
+        return;
     m_bDragPending = false;
     handleMovement();
 }
 
 void CHyprBar::onTouchMove(Event::SCallbackInfo& info, ITouch::SMotionEvent e) {
-    if (!m_bDragPending || !m_bTouchEv || !validMapped(m_pWindow) || e.touchID != m_touchId)
+    if (!m_bCancelledDown || !m_bTouchEv || !validMapped(m_pWindow) || e.touchID != m_touchId)
         return;
-
-    auto PMONITOR     = m_pWindow->m_monitor.lock();
-    PMONITOR          = PMONITOR ? PMONITOR : Desktop::focusState()->monitor();
-    const auto COORDS = Vector2D(PMONITOR->m_position.x + e.pos.x * PMONITOR->m_size.x, PMONITOR->m_position.y + e.pos.y * PMONITOR->m_size.y);
-
-    if (!m_bDraggingThis) {
-        // Initial setup for dragging a window.
-        g_pKeybindManager->m_dispatchers["setfloating"]("activewindow");
-        g_pKeybindManager->m_dispatchers["resizewindowpixel"]("exact 50% 50%,activewindow");
-        // pin it so you can change workspaces while dragging a window
-        g_pKeybindManager->m_dispatchers["pin"]("activewindow");
+    auto monitor = m_pWindow->m_monitor.lock();
+    if (!monitor)
+        return;
+    const Vector2D pointer = monitor->m_position + e.pos * monitor->m_size;
+    // Release hit testing uses the latest touch position, not the mouse.
+    if (m_pressedButton >= 0) {
+        syncButtonAnimations();
+        if (m_pressedButton < 0)
+            return;
+        const bool inside = buttonAt(pointer - stripBoxGlobal().pos()) == m_pressedButton;
+        *m_buttonAnimations[m_pressedButton].press = inside ? 1.F : 0.F;
+        m_touchPointer = pointer;
+        info.cancelled = true;
+        return;
     }
-    g_pKeybindManager->m_dispatchers["movewindowpixel"](std::format("exact {} {},activewindow", (int)(COORDS.x - (stripBoxGlobal().w / 2)), (int)COORDS.y));
-    m_bDraggingThis = true;
+    if (!m_bDraggingThis && (pointer - m_pressPointer).distance(Vector2D{}) >= 4.0) {
+        if (!detachForDrag(pointer))
+            return;
+        m_bDraggingThis = true;
+        m_bDragPending = false;
+    }
+    if (m_bDraggingThis) {
+        const CBox box{m_pressWindow.pos() + pointer - m_pressPointer, m_pressWindow.size()};
+        g_layoutManager->setTargetGeom(box, m_pWindow->layoutTarget());
+        m_pWindow->layoutTarget()->warpPositionSize();
+        info.cancelled = true;
+    }
+    m_touchPointer = pointer;
 }
 
 void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch::SDownEvent> touchEvent) {
@@ -286,16 +305,6 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
     const bool  BUTTONSRIGHT = ALIGNBUTTONS != "left";
 
     if (!VECINRECT(COORDS, 0, 0, STRIPBOX.w, HEIGHT - 1)) {
-
-        if (m_bDraggingThis) {
-            if (m_bTouchEv)
-                g_pKeybindManager->m_dispatchers["settiled"]("activewindow");
-            g_pKeybindManager->m_dispatchers["mouse"]("0movewindow");
-            Log::logger->log(Log::DEBUG, "[aura-titlebar] Dragging ended on {:x}", (uintptr_t)PWINDOW.get());
-        }
-
-        m_bDraggingThis = false;
-        m_bDragPending  = false;
         m_bTouchEv      = false;
         return;
     }
@@ -312,6 +321,10 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
     info.cancelled   = true;
     m_bCancelledDown = true;
     m_bPointerHeld   = true;
+    m_pressPointer = COORDS + STRIPBOX.pos();
+    m_touchPointer = m_pressPointer;
+    m_pressWindow = windowBoxGlobal();
+    m_bDragPending = false;
 
     if (doButtonPress(BARPADDING, BARBUTTONPADDING, HEIGHT, COORDS, BUTTONSRIGHT))
         return;
@@ -327,54 +340,116 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
 }
 
 void CHyprBar::handleUpEvent(Event::SCallbackInfo& info) {
-    if (m_pWindow.lock() != Desktop::focusState()->window())
+    if (!m_bCancelledDown)
         return;
-
-    if (m_bCancelledDown)
-        info.cancelled = true;
-
-    m_bCancelledDown = false;
-
-    if (m_bDraggingThis) {
-        g_pKeybindManager->changeMouseBindMode(MBIND_INVALID);
-        m_bDraggingThis = false;
-        if (m_bTouchEv)
-            (void)Config::Actions::floatWindow(Config::Actions::eTogglableAction::TOGGLE_ACTION_DISABLE);
-
-        Log::logger->log(Log::DEBUG, "[aura-titlebar] Dragging ended on {:x}", (uintptr_t)m_pWindow.lock().get());
+    info.cancelled = true;
+    std::string command;
+    if (validMapped(m_pWindow) && m_pressedButton >= 0 && !m_hidden &&
+        g_pGlobalState->config.enabled->value() && Desktop::focusState()->window() == m_pWindow.lock()) {
+        const auto pointer = m_bTouchEv ? m_touchPointer : g_pInputManager->getMouseCoordsInternal();
+        if (buttonAt(pointer - stripBoxGlobal().pos()) == m_pressedButton &&
+            size_t(m_pressedButton) < g_pGlobalState->buttons.size())
+            command = g_pGlobalState->buttons[m_pressedButton].cmd;
     }
+    for (auto& animation : m_buttonAnimations)
+        *animation.press = 0.F;
+    m_pressedButton = -1;
+    if (m_bDraggingThis && !m_bTouchEv && validMapped(m_pWindow) &&
+        g_layoutManager->dragController()->target() == m_pWindow->layoutTarget())
+        g_layoutManager->endDragTarget();
+    m_bDraggingThis = false;
+    m_bDragPending = false;
+    m_bCancelledDown = false;
+    m_bTouchEv = false;
+    m_bPointerHeld = false;
+    m_touchId = 0;
+    m_lastMouseDown = command.empty() ? m_lastMouseDown : Time::steady_tp{};
+    damageOnButtonHover();
+    setReveal(shouldReveal(g_pInputManager->getMouseCoordsInternal()));
+    if (!command.empty())
+        Config::Supplementary::executor()->spawn(command);
+}
 
-    m_bDragPending  = false;
-    m_bTouchEv      = false;
-    m_bPointerHeld  = false;
-    m_touchId       = 0;
+bool CHyprBar::detachForDrag(const Vector2D& pointer) {
+    if (!validMapped(m_pWindow))
+        return false;
+    const auto window = m_pWindow.lock();
+    const auto target = window->layoutTarget();
+    if (!target || !target->space())
+        return false;
+    // Native tiled dragging shrinks and centers. Enter its floating path with
+    // the exact visible box instead, before it records the pointer anchor.
+    if (Fullscreen::controller()->isFullscreen(window))
+        Fullscreen::controller()->setFullscreenMode(window, Fullscreen::FSMODE_NONE);
+    target->rememberFloatingSize(m_pressWindow.size());
+    if (!target->floating())
+        g_layoutManager->changeFloatingMode(target);
+    if (!target->floating())
+        return false;
+    const CBox box{m_pressWindow.pos() + pointer - m_pressPointer, m_pressWindow.size()};
+    g_layoutManager->setTargetGeom(box, target);
+    target->warpPositionSize();
+    Desktop::windowState()->raise(window);
+    m_lastMouseDown = Time::steady_tp{};
+    return true;
 }
 
 void CHyprBar::handleMovement() {
-    g_pKeybindManager->changeMouseBindMode(MBIND_MOVE);
-    m_bDraggingThis = true;
-    Log::logger->log(Log::DEBUG, "[aura-titlebar] Dragging initiated on {:x}", (uintptr_t)m_pWindow.lock().get());
-    return;
+    if (!detachForDrag(g_pInputManager->getMouseCoordsInternal()))
+        return;
+    g_layoutManager->beginDragTarget(m_pWindow->layoutTarget(), MBIND_MOVE, std::nullopt, true);
+    m_bDraggingThis = g_layoutManager->dragController()->target() == m_pWindow->layoutTarget();
 }
 
-bool CHyprBar::doButtonPress(Config::INTEGER barPadding, Config::INTEGER barButtonPadding, Config::INTEGER barHeight, Vector2D COORDS, const bool BUTTONSRIGHT) {
-    //check if on a button
-    float offset = barPadding;
-
-    for (auto& b : g_pGlobalState->buttons) {
-        const auto BARBUF     = Vector2D{(int)stripBoxGlobal().w, barHeight};
-        const auto BUTTONSIZE = effectiveButtonSize(b);
-        Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - barButtonPadding - BUTTONSIZE - offset : offset), (BARBUF.y - BUTTONSIZE) / 2.0}.floor();
-
-        if (VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + BUTTONSIZE + barButtonPadding, currentPos.y + BUTTONSIZE)) {
-            // hit on button
-            g_pKeybindManager->m_dispatchers["exec"](b.cmd);
-            return true;
+void CHyprBar::syncButtonAnimations() {
+    while (m_buttonAnimations.size() < g_pGlobalState->buttons.size()) {
+        SButtonAnimation state;
+        for (auto* value : {&state.hover, &state.press}) {
+            Animation::mgr()->createAnimation(0.F, *value, Config::animationTree()->getAnimationPropertyConfig("fadeIn"), m_pWindow.lock(), AVARDAMAGE_NONE);
+            (*value)->setUpdateCallback([this](auto) { damageEntire(); });
         }
-
-        offset += barButtonPadding + BUTTONSIZE;
+        m_buttonAnimations.emplace_back(std::move(state));
     }
-    return false;
+    m_buttonAnimations.resize(g_pGlobalState->buttons.size());
+    if (m_pressedButton >= int(m_buttonAnimations.size()))
+        m_pressedButton = -1;
+}
+
+int CHyprBar::buttonAt(const Vector2D& local) {
+    const auto padding = g_pGlobalState->config.barPadding->value();
+    const auto gap = g_pGlobalState->config.barButtonPadding->value();
+    const auto height = g_pGlobalState->config.barHeight->value();
+    const auto strip = stripBoxGlobal();
+    const bool right = g_pGlobalState->config.barButtonsAlignment->value() != "left";
+    const auto count = getVisibleButtonCount(gap, padding, strip.size(), 1.F);
+    float offset = padding;
+    for (size_t i = 0; i < count; ++i) {
+        const float size = effectiveButtonSize(g_pGlobalState->buttons[i]);
+        const float x = right ? strip.w - offset - size : offset;
+        const float y = (height - size) / 2.F;
+        // Stable hit boxes match the resting circles, with half the gap as slop.
+        if (VECINRECT(local, x - gap / 2.F, y - 2, x + size + gap / 2.F, y + size + 2))
+            return int(i);
+        offset += size + gap;
+    }
+    return -1;
+}
+
+float CHyprBar::buttonInteractionScale(size_t index) {
+    syncButtonAnimations();
+    return 1.F + .12F * std::clamp(m_buttonAnimations[index].hover->value(), 0.F, 1.F)
+               - .22F * std::clamp(m_buttonAnimations[index].press->value(), 0.F, 1.F);
+}
+
+bool CHyprBar::doButtonPress(Config::INTEGER, Config::INTEGER, Config::INTEGER, Vector2D local, bool) {
+    syncButtonAnimations();
+    m_pressedButton = buttonAt(local);
+    if (m_pressedButton < 0)
+        return false;
+    *m_buttonAnimations[m_pressedButton].press = 1.F;
+    *m_buttonAnimations[m_pressedButton].hover = 1.F;
+    m_lastMouseDown = Time::steady_tp{};
+    return true;
 }
 
 void CHyprBar::renderBarTitle(const Vector2D& bufferSize, const float scale) {
@@ -446,8 +521,8 @@ void CHyprBar::renderBarButtons(CBox* barBox, const float scale, const float a) 
         // staggered pop-in: close leads, then maximize, then minimize;
         // with pop disabled every button simply rides the bar's own alpha
         double pop = POP ? std::clamp((PROGRESS - STAGGER * sc<double>(i)) / SPAN, 0.0, 1.0) : std::clamp(PROGRESS, 0.F, 1.F);
-        const double scaleFrac = POP ? std::clamp(0.6 + 0.4 * easeOutBack(pop), 0.02, 1.35) : 1.0;
-        const float  popAlpha  = POP ? sc<float>(easeOutCubic(pop)) : a;
+        const double scaleFrac = (POP ? std::clamp(0.6 + 0.4 * easeOutBack(pop), 0.02, 1.35) : 1.0) * buttonInteractionScale(i);
+        const float  popAlpha  = POP ? sc<float>(easeOutCubic(pop)) : 1.F;
 
         auto       color = button.bgcol;
 
@@ -457,14 +532,18 @@ void CHyprBar::renderBarButtons(CBox* barBox, const float scale, const float a) 
                 button.iconTex = nullptr;
         }
 
-        color.a *= popAlpha;
+        const float hover = std::clamp(m_buttonAnimations[i].hover->value(), 0.F, 1.F);
+        color.r += (1.F - color.r) * .10F * hover;
+        color.g += (1.F - color.g) * .10F * hover;
+        color.b += (1.F - color.b) * .10F * hover;
+        color.a *= popAlpha * a;
 
         const float renderSize    = sc<float>(scaledButtonSize * scaleFrac);
         const float centerOffsetX = BUTTONSRIGHT ? barBox->w - offset - scaledButtonSize + scaledButtonSize / 2.0 : offset + scaledButtonSize / 2.0;
         CBox buttonBox = {barBox->x + centerOffsetX - renderSize / 2.0, barBox->y + barBox->h / 2.0 - renderSize / 2.0, renderSize, renderSize};
         buttonBox.round();
 
-        g_pHyprOpenGL->renderRect(buttonBox, color, {.round = static_cast<int>(std::round(scaledButtonSize / 2.0)), .roundingPower = 2.F});
+        g_pHyprOpenGL->renderRect(buttonBox, color, {.round = static_cast<int>(std::round(renderSize / 2.0)), .roundingPower = 2.F});
 
         offset += scaledButtonsPad + scaledButtonSize;
     }
@@ -495,15 +574,8 @@ void CHyprBar::renderBarButtonsText(CBox* barBox, const float scale, const float
         const auto scaledButtonsPad = BARBUTTONPADDING * scale;
 
         double pop = POP ? std::clamp((PROGRESS - STAGGER * sc<double>(i)) / SPAN, 0.0, 1.0) : std::clamp(PROGRESS, 0.F, 1.F);
-        const double scaleFrac = POP ? std::clamp(0.6 + 0.4 * easeOutBack(pop), 0.02, 1.35) : 1.0;
-        const float  popAlpha  = POP ? sc<float>(easeOutCubic(pop)) : a;
-
-        // check if hovering here
-        const auto BARBUF     = Vector2D{(int)stripBoxGlobal().w, HEIGHT};
-        const auto BUTTONSIZE = effectiveButtonSize(button);
-        Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - BARBUTTONPADDING - BUTTONSIZE - noScaleOffset : noScaleOffset), (BARBUF.y - BUTTONSIZE) / 2.0}.floor();
-        bool       hovering   = VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + BUTTONSIZE + BARBUTTONPADDING, currentPos.y + BUTTONSIZE);
-        noScaleOffset += BARBUTTONPADDING + BUTTONSIZE;
+        const double scaleFrac = (POP ? std::clamp(0.6 + 0.4 * easeOutBack(pop), 0.02, 1.35) : 1.0) * buttonInteractionScale(i);
+        const float  popAlpha  = POP ? sc<float>(easeOutCubic(pop)) : 1.F;
 
         if ((!button.iconTex || button.iconTex->m_texID == 0) && !button.icon.empty()) {
             // render icon
@@ -521,16 +593,11 @@ void CHyprBar::renderBarButtonsText(CBox* barBox, const float scale, const float
         const float glyphH    = sc<float>(button.iconTex->m_size.y * scaleFrac);
         CBox        pos       = {centerX - glyphSize / 2.0, centerY - glyphH / 2.0, glyphSize, glyphH};
 
-        if (!ICONONHOVER || (ICONONHOVER && m_iButtonHoverState > 0))
+        if (!ICONONHOVER || buttonAt(COORDS) >= 0 || m_pressedButton >= 0)
             g_pHyprOpenGL->renderTexture(button.iconTex, pos, {.a = popAlpha * a});
         offset += scaledButtonsPad + scaledButtonSize;
 
-        bool currentBit = (m_iButtonHoverState & (1 << i)) != 0;
-        if (hovering != currentBit) {
-            m_iButtonHoverState ^= (1 << i);
-            // damage to get rid of some artifacts when icons are "hidden"
-            damageEntire();
-        }
+
     }
 }
 
@@ -941,28 +1008,15 @@ void CHyprBar::updateRules() {
 }
 
 void CHyprBar::damageOnButtonHover() {
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-    const auto HEIGHT           = g_pGlobalState->config.barHeight->value();
-    const auto ALIGNBUTTONS     = g_pGlobalState->config.barButtonsAlignment->value();
-    const bool BUTTONSRIGHT     = ALIGNBUTTONS != "left";
-
-    float      offset = BARPADDING;
-
-    const auto COORDS = cursorRelativeToBar();
-
-    for (auto& b : g_pGlobalState->buttons) {
-        const auto BARBUF     = Vector2D{(int)stripBoxGlobal().w, HEIGHT};
-        const auto BUTTONSIZE = effectiveButtonSize(b);
-        Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - BARBUTTONPADDING - BUTTONSIZE - offset : offset), (BARBUF.y - BUTTONSIZE) / 2.0}.floor();
-
-        bool       hover = VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + BUTTONSIZE + BARBUTTONPADDING, currentPos.y + BUTTONSIZE);
-
-        if (hover != m_bButtonHovered) {
-            m_bButtonHovered = hover;
-            damageEntire();
-        }
-
-        offset += BARBUTTONPADDING + effectiveButtonSize(b);
+    syncButtonAnimations();
+    const int hovered = validMapped(m_pWindow) && barAcceptsInput() && inputIsValid()
+        ? buttonAt(cursorRelativeToBar()) : -1;
+    for (size_t i = 0; i < m_buttonAnimations.size(); ++i) {
+        const float hover = int(i) == hovered ? 1.F : 0.F;
+        const float press = int(i) == m_pressedButton && int(i) == hovered ? 1.F : 0.F;
+        if (m_buttonAnimations[i].hover->goal() != hover)
+            *m_buttonAnimations[i].hover = hover;
+        if (m_buttonAnimations[i].press->goal() != press)
+            *m_buttonAnimations[i].press = press;
     }
 }

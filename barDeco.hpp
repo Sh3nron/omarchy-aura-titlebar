@@ -77,7 +77,7 @@ class CHyprBar : public IHyprWindowDecoration {
     std::optional<CHyprColor>  m_bForcedBarColor;
     std::optional<CHyprColor>  m_bForcedTitleColor;
 
-    Time::steady_tp            m_lastMouseDown = Time::steadyNow();
+    Time::steady_tp            m_lastMouseDown = {};
 
     PHLANIMVAR<CHyprColor>     m_cRealBarColor;
 
@@ -95,6 +95,10 @@ class CHyprBar : public IHyprWindowDecoration {
     void renderBarButtons(CBox* barBox, const float scale, const float a);
     void renderBarButtonsText(CBox* barBox, const float scale, const float a);
     void damageOnButtonHover();
+    void syncButtonAnimations();
+    int buttonAt(const Vector2D& local);
+    float buttonInteractionScale(size_t index);
+    bool detachForDrag(const Vector2D& pointer);
 
     bool inputIsValid();
     void onMouseButton(Event::SCallbackInfo& info, IPointer::SButtonEvent e);
@@ -136,6 +140,14 @@ class CHyprBar : public IHyprWindowDecoration {
     bool                m_bDragPending   = false;
     bool                m_bCancelledDown = false;
     int                 m_touchId        = 0;
+    Vector2D            m_pressPointer;
+    Vector2D            m_touchPointer;
+    CBox                m_pressWindow;
+    int                 m_pressedButton = -1;
+    struct SButtonAnimation {
+        PHLANIMVAR<float> hover, press;
+    };
+    std::vector<SButtonAnimation> m_buttonAnimations;
 
     // store hover state for buttons as a bitfield
     unsigned int m_iButtonHoverState = 0;
