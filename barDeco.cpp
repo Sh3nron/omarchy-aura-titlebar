@@ -27,6 +27,7 @@
 #include "TitlebarBlur.hpp"
 
 #include <climits>
+#include <cstring>
 
 using namespace Render::GL;
 
@@ -516,17 +517,37 @@ UP<IPassElement> CHyprBar::makeGradualBlurElement(PHLMONITOR pMonitor, const CBo
     bandH     = std::clamp(bandH, 1.0, static_cast<double>(sc<double>(windowBoxScaled.h)));
     double reach = std::clamp(scaledReach, 0.0, std::max(0.0, windowBoxScaled.h - bandH));
 
+    if (bandH + reach < 2)
+        return nullptr;
+
+    // CTextureMatteElement maps the blurred texture onto the box, so the box
+    // must be the full monitor (aura-blur does the same); the band lives in
+    // the matte alpha only
     CTitlebarGradualBlurElement::SBlurData data;
     data.monitor  = pMonitor;
     data.deco     = this;
-    data.box      = {windowBoxScaled.x, windowBoxScaled.y, windowBoxScaled.w, bandH + reach};
-    data.cardH    = bandH;
+    data.fullBox  = {0.0, 0.0, pMonitor->m_transformedSize.x, pMonitor->m_transformedSize.y};
+    data.card     = {windowBoxScaled.x, windowBoxScaled.y, windowBoxScaled.w, bandH};
     data.round    = scaledRound;
     data.reach    = reach;
     data.strength = strength;
 
-    if (data.box.h < 2)
-        return nullptr;
+    // regen key: descriptor mixing so untouched redraws re-use the last matte
+    auto mix = [&data](uint64_t h, double v) {
+        uint64_t bits;
+        std::memcpy(&bits, &v, sizeof(bits));
+        return h * 0x100000001b3ULL ^ bits;
+    };
+    uint64_t key = 0xcbf29ce484222325ULL;
+    key = mix(key, windowBoxScaled.x);
+    key = mix(key, windowBoxScaled.y);
+    key = mix(key, windowBoxScaled.w);
+    key = mix(key, bandH);
+    key = mix(key, reach);
+    key = mix(key, scaledRound);
+    key = mix(key, std::round(strength * 64.F)); // quantized during animation
+    key = mix(key, sc<double>(pMonitor->m_scale));
+    data.gen = key;
 
     return makeUnique<CTitlebarGradualBlurElement>(data);
 }

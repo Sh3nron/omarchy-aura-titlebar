@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
@@ -7,23 +9,29 @@
 class CHyprBar;
 
 // Live gradual blur under the title bar: the aura-blur matte system
-// (https://github.com/Sh3nron's omarchy aura-blur, and the ReactBits
-// GradualBlur falloff it is modeled on) applied to a per-window top band.
-// The matte is strongest at the bar and melts smoothly into the app
-// content below, so titles and buttons read clearly while the window
-// never shows a hard blur edge.
+// (the ReactBits GradualBlur falloff, as a compositor render pass)
+// applied to a per-window top band. The matte is strongest at the bar
+// and melts smoothly into the app content below, so titles and buttons
+// read clearly while the window never shows a hard blur edge.
+//
+// The matte element must be handed a FULL-MONITOR box and full-monitor
+// matte framebuffer, exactly like aura-blur: CTextureMatteElement maps
+// its blurred texture onto the given box, so a sub-region box would
+// squeeze the whole blurred desktop into the strip. The band lives
+// purely in the matte alpha.
 class CTitlebarGradualBlurElement : public IPassElement {
   public:
     struct SBlurData {
         PHLMONITOR monitor;
-        CHyprBar*  deco = nullptr; // owns the reuse matte framebuffer
+        CHyprBar*  deco = nullptr; // owns the matte framebuffer + regen key
 
-        // all in monitor render coordinates (scaled pixels)
-        CBox       box;      // the blur region: strip + reach below
-        double     cardH;    // current bar band height (moves with the reveal)
-        double     round;    // inner rounded-corner radius of the window edge
-        double     reach;    // falloff length below the bar
-        double     strength; // reveal progress based alpha (0..1)
+        // full monitor render box (disableTransformAndModify path)
+        CBox       fullBox;   // {0, 0, transformedSize} of the monitor
+        CBox       card;      // the bar band in monitor render coordinates
+        double     reach;     // falloff length below the band
+        double     round;     // inner rounded-corner radius of the window edge
+        double     strength;  // reveal-progress alpha (0..1)
+        uint64_t   gen;       // regen key: geometry + quantized strength
     };
 
     CTitlebarGradualBlurElement(const SBlurData& data_) : m_data(data_) {}
@@ -44,7 +52,7 @@ class CTitlebarGradualBlurElement : public IPassElement {
         return EK_CUSTOM;
     }
     virtual std::optional<CBox> boundingBox() override {
-        return m_data.box;
+        return m_data.fullBox;
     }
     virtual bool                disableSimplification() override {
         return true;

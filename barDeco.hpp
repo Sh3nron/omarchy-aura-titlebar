@@ -66,6 +66,7 @@ class CHyprBar : public IHyprWindowDecoration {
 
     SP<Render::ITexture>       m_pTextTex;
     SP<Render::IFramebuffer>   m_pMatteFB;
+    uint64_t                   m_ullMatteKey = 0;
 
     bool                       m_bWindowSizeChanged = false;
     bool                       m_hidden             = false;
@@ -147,6 +148,13 @@ class CHyprBar : public IHyprWindowDecoration {
     }
     void setMatteFB(SP<Render::IFramebuffer> fb) {
         m_pMatteFB = fb;
+    }
+
+    uint64_t matteKey() const {
+        return m_ullMatteKey;
+    }
+    void setMatteKey(uint64_t key) {
+        m_ullMatteKey = key;
     }
 
     friend class CTitlebarGradualBlurElement;
